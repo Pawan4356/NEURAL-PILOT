@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agentic AutoML</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --border: #e2e5ea;
+    --text: #1a1d23;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-dark: #4338ca;
+    --good: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 0.95rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-bottom: 20px;
+  }
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
+  .hint { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+  input[type="file"], textarea, input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    background: #fff;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  .field { margin-bottom: 16px; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #b9b9c6; cursor: not-allowed; }
+  .hidden { display: none !important; }
+  .status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2.5px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .badge.running { background: #eef2ff; color: var(--accent); }
+  .badge.finalized { background: #ecfdf5; color: var(--good); }
+  .badge.failed { background: #fef2f2; color: var(--bad); }
+  .badge.awaiting_clarification { background: #fffbeb; color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 14px 0; }
+  .metric { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+  .metric .val { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+  .metric .lbl { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  ul.assumptions { margin: 6px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--muted); }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.85rem; }
+  .bar-label { width: 130px; flex-shrink: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  .bar-track { flex: 1; background: #f1f2f6; border-radius: 4px; height: 10px; overflow: hidden; }
+  .bar-fill { background: var(--accent); height: 100%; }
+  .error-box { background: #fef2f2; border: 1px solid #fecaca; color: var(--bad); padding: 12px 14px; border-radius: 8px; font-size: 0.9rem; }
+  h3 { font-size: 1rem; margin: 18px 0 8px; }
+  .section-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agentic AutoML</h1>
+    <div class="sub">Upload a dataset, describe what you want to predict in plain English, and let the agents build a model.</div>
+  </header>
+
+  <div class="card" id="upload-card">
+    <div class="section-title">1. Start a run</div>
+    <form id="upload-form">
+      <div class="field">
+        <label for="file">Dataset (.csv)</label>
+        <input type="file" id="file" name="file" accept=".csv" required />
+      </div>
+      <div class="field">
+        <label for="goal">What do you want to predict?</label>
+        <textarea id="goal" name="goal" placeholder="e.g. Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea>
+        <div class="hint">Mention priorities like "fast", "explainable", or "as accurate as possible" if you have them — otherwise sensible defaults are used.</div>
+      </div>
+      <button type="submit" id="submit-btn">Start</button>
+    </form>
+  </div>
+
+  <div class="card hidden" id="clarify-card">
+    <div class="section-title">A quick question</div>
+    <p id="clarify-question"></p>
+    <form id="clarify-form">
+      <div class="field">
+        <input type="text" id="clarify-answer" placeholder="Type the exact column name" required />
+      </div>
+      <button type="submit">Continue</button>
+    </form>
+  </div>
+
+  <div class="card hidden" id="status-card">
+    <div class="status-row">
+      <div class="spinner" id="status-spinner"></div>
+      <span class="badge running" id="status-badge">running</span>
+      <span id="status-text" class="hint"></span>
+    </div>
+    <div id="iteration-log"></div>
+  </div>
+
+  <div class="card hidden" id="error-card">
+    <div class="section-title">Something went wrong</div>
+    <div class="error-box" id="error-text"></div>
+  </div>
+
+  <div class="card hidden" id="report-card"></div>
+</div>
+
+<script>
+let currentRunId = null;
+let pollHandle = null;
+
+const el = (id) => document.getElementById(id);
+
+function show(id) { el(id).classList.remove("hidden"); }
+function hide(id) { el(id).classList.add("hidden"); }
+
+el("upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = el("file");
+  const goal = el("goal").value;
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+  formData.append("goal", goal);
+
+  el("submit-btn").disabled = true;
+  el("submit-btn").textContent = "Starting...";
+
+  try {
+    const res = await fetch("/api/runs", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Failed to start run");
+    currentRunId = data.run_id;
+    show("status-card");
+    startPolling();
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    el("submit-btn").disabled = false;
+    el("submit-btn").textContent = "Start";
+  }
+});
+
+el("clarify-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const answer = el("clarify-answer").value;
+  const formData = new FormData();
+  formData.append("answer", answer);
+  await fetch(`/api/runs/${currentRunId}/clarify`, { method: "POST", body: formData });
+  hide("clarify-card");
+  show("status-card");
+  startPolling();
+});
+
+function startPolling() {
+  if (pollHandle) clearInterval(pollHandle);
+  pollHandle = setInterval(fetchStatus, 1800);
+  fetchStatus();
+}
+
+async function fetchStatus() {
+  const res = await fetch(`/api/runs/${currentRunId}`);
+  const data = await res.json();
+  render(data);
+  if (data.status === "finalized" || data.status === "failed" || data.status === "awaiting_clarification") {
+    clearInterval(pollHandle);
+  }
+}
+
+function render(data) {
+  const badge = el("status-badge");
+  badge.className = "badge " + data.status;
+  badge.textContent = data.status.replace("_", " ");
+  el("status-spinner").style.display = data.status === "running" ? "block" : "none";
+  el("status-text").textContent = `Iteration ${data.iteration} / up to ${data.max_iterations}`;
+
+  el("iteration-log").innerHTML = data.iteration_logs.map(log => `
+    <div style="padding:8px 0;border-top:1px solid var(--border);font-size:0.85rem;">
+      <strong>Iteration ${log.iteration}</strong> — model: ${log.plan_summary.model_family},
+      score: ${log.composite_score}, weakest block: ${log.weakest_block},
+      decision: <em>${log.decision}</em>
+    </div>
+  `).join("");
+
+  if (data.status === "awaiting_clarification") {
+    hide("status-card");
+    el("clarify-question").textContent = data.clarification_question;
+    show("clarify-card");
+  }
+
+  if (data.status === "failed") {
+    showError(data.error || "Unknown error.");
+  }
+
+  if (data.status === "finalized" && data.final_report) {
+    renderReport(data.final_report);
+  }
+}
+
+function showError(message) {
+  el("error-text").textContent = message;
+  show("error-card");
+}
+
+function renderReport(report) {
+  const shapRows = report.shap_summary && report.shap_summary.top_features
+    ? report.shap_summary.top_features
+    : [];
+  const maxShap = shapRows.length ? Math.max(...shapRows.map(r => r.mean_abs_shap)) : 1;
+
+  const metricsHtml = Object.entries(report.metrics).map(([k, v]) => `
+    <div class="metric"><div class="val">${(typeof v === "number" ? v.toFixed(3) : v)}</div><div class="lbl">${k}</div></div>
+  `).join("");
+
+  const shapHtml = shapRows.length ? `
+    <h3>What matters most (SHAP)</h3>
+    ${shapRows.map(r => `
+      <div class="bar-row">
+        <div class="bar-label" title="${r.feature}">${r.feature}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(r.mean_abs_shap / maxShap * 100).toFixed(0)}%"></div></div>
+      </div>
+    `).join("")}
+  ` : "";
+
+  const historyHtml = `
+    <h3>Run history</h3>
+    <table>
+      <thead><tr><th>#</th><th>Model</th><th>Score</th><th>Weakest block</th><th>Decision</th></tr></thead>
+      <tbody>
+        ${report.run_history.map(h => `
+          <tr>
+            <td>${h.iteration}</td>
+            <td>${h.plan_summary.model_family}</td>
+            <td>${h.composite_score.toFixed(3)}</td>
+            <td>${h.weakest_block}</td>
+            <td>${h.decision}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  const assumptionsHtml = report.assumptions.length ? `
+    <h3>Assumptions made</h3>
+    <ul class="assumptions">${report.assumptions.map(a => `<li>${a}</li>`).join("")}</ul>
+  ` : "";
+
+  el("report-card").innerHTML = `
+    <div class="section-title">Final report</div>
+    <p class="hint">
+      Target: <strong>${report.target_column}</strong> ·
+      Problem type: <strong>${report.problem_type}</strong> ·
+      Model: <strong>${report.model_family}</strong> ·
+      Decision: <strong>${report.final_decision}</strong>
+    </p>
+    <div class="metrics-grid">${metricsHtml}</div>
+    <p class="hint">Composite score: <strong>${report.composite_score.toFixed(3)}</strong> — ${report.final_decision_rationale}</p>
+    ${shapHtml}
+    ${historyHtml}
+    ${assumptionsHtml}
+    <div style="margin-top:16px;">
+      <a href="/api/runs/${report.run_id}/model"><button type="button">Download trained model (.joblib)</button></a>
+    </div>
+  `;
+  show("report-card");
+  hide("status-card");
+}
+</script>
+</body>
+</html>
