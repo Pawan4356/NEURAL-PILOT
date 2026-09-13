@@ -184,6 +184,7 @@ def _tune_hyperparameters(
     problem_type: ProblemType,
     X_train: pd.DataFrame,
     y_train: pd.Series,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[dict, list[dict], BlockDiagnostics]:
     start = time.perf_counter()
     fallbacks: list[dict] = []
@@ -218,7 +219,18 @@ def _tune_hyperparameters(
             return float(np.mean(scores))
 
         study = optuna.create_study(direction="maximize", sampler=sampler)
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+        def report_progress(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
+            message = f"Hyperparameter tuning: trial {len(study.trials)}/{n_trials}"
+            if progress_callback:
+                progress_callback(message)
+
+        study.optimize(
+            objective,
+            n_trials=n_trials,
+            show_progress_bar=False,
+            callbacks=[report_progress],
+        )
         best_params = study.best_params
 
     duration = time.perf_counter() - start
@@ -287,6 +299,7 @@ def run_pipeline(
     *,
     generate_shap: bool = False,
     random_state: int = 42,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ExecutionOutcome:
     diagnostics: list[BlockDiagnostics] = []
     fallbacks: list[dict] = []
@@ -334,7 +347,14 @@ def run_pipeline(
 
     # --- hyperparameter tuning ---
     best_params, tuning_fallbacks, tuning_diag = _tune_hyperparameters(
-        preprocessor, fe_steps, plan.model_family, plan, requirement.problem_type, X_train, y_train
+        preprocessor,
+        fe_steps,
+        plan.model_family,
+        plan,
+        requirement.problem_type,
+        X_train,
+        y_train,
+        progress_callback=progress_callback,
     )
     fallbacks.extend(tuning_fallbacks)
     diagnostics.append(tuning_diag)
@@ -346,6 +366,8 @@ def run_pipeline(
         fallbacks.append(model_fb.to_dict())
     estimator = model_spec.build(requirement.problem_type, **best_params)
     pipeline = Pipeline([("preprocess", preprocessor), *fe_steps, ("model", estimator)])
+    if progress_callback:
+        progress_callback(f"Final training of {model_spec.name}")
     pipeline.fit(X_train, y_train)
     diagnostics.append(
         BlockDiagnostics(
@@ -367,6 +389,8 @@ def run_pipeline(
     # --- SHAP (only if explicitly requested; never gated by score itself) ---
     shap_summary = None
     if generate_shap:
+        if progress_callback:
+            progress_callback("Generating SHAP feature importance")
         shap_summary, shap_diag = _generate_shap_summary(pipeline, X_train, X_test, requirement.problem_type)
         diagnostics.append(shap_diag)
 

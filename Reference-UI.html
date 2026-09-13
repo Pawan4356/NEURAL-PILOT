@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<title>Agentic AutoML — Console</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#12151A;
+    --panel:#181C22;
+    --panel-2:#1E232B;
+    --line:#2A2F38;
+    --text:#E7EAEE;
+    --dim:#8A93A2;
+    --amber:#E3A857;
+    --green:#6FCF97;
+    --blue:#5FA8D3;
+    --danger:#E0788A;
+    --shadow: none;
+  }
+  html[data-theme="light"]{
+    --bg:#F6F7F9;
+    --panel:#FFFFFF;
+    --panel-2:#F1F3F6;
+    --line:#DFE3E8;
+    --text:#181C22;
+    --dim:#667082;
+    --amber:#9C6423;
+    --green:#1F8A5B;
+    --blue:#1D6FA5;
+    --danger:#C24A5D;
+    --shadow: 0 1px 2px rgba(20,24,30,0.05);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    transition:background .15s ease, color .15s ease;
+  }
+  .wrap{
+    max-width:1100px;
+    margin:0 auto;
+    padding:32px 28px 90px;
+  }
+
+  /* Top bar */
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:8px;
+    padding-bottom:20px;
+    border-bottom:1px solid var(--line);
+  }
+  .brand-group{display:flex; align-items:center; gap:18px;}
+  .brand{font-size:15px;font-weight:600;}
+  .brand span{color:var(--dim);font-weight:400;}
+  .crumb{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--dim);
+  }
+  .crumb b{color:var(--text); font-weight:500;}
+
+  .top-actions{display:flex; align-items:center; gap:14px;}
+  .env{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11.5px;
+    color:var(--dim);
+  }
+  .env b{color:var(--green);}
+
+  .theme-toggle{
+    display:flex;
+    align-items:center;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:3px;
+    cursor:pointer;
+    gap:2px;
+  }
+  .theme-toggle button{
+    border:none;
+    background:transparent;
+    color:var(--dim);
+    font-size:12px;
+    padding:5px 11px;
+    border-radius:16px;
+    cursor:pointer;
+    font-family:'Inter',sans-serif;
+    font-weight:500;
+    display:flex;
+    align-items:center;
+    gap:5px;
+  }
+  .theme-toggle button.active{
+    background:var(--panel);
+    color:var(--text);
+    box-shadow:var(--shadow);
+  }
+
+  /* Pages */
+  .page{display:none;}
+  .page.visible{display:block;}
+
+  h1{
+    font-size:26px;
+    font-weight:700;
+    margin:24px 0 8px;
+    letter-spacing:-0.01em;
+  }
+  .sub{color:var(--dim); font-size:14.5px; margin-bottom:32px; max-width:540px; line-height:1.5;}
+
+  .split{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:22px;
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:26px;
+    box-shadow:var(--shadow);
+  }
+  .panel-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:20px;
+  }
+  .panel-title{
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+  }
+
+  .drop{
+    border:1px dashed var(--line);
+    border-radius:8px;
+    padding:26px 18px;
+    text-align:center;
+    cursor:pointer;
+    background:var(--panel-2);
+  }
+  .drop:hover{border-color:var(--blue);}
+  .drop-title{font-size:14px;font-weight:600;margin-bottom:4px;}
+  .drop-sub{font-size:12px;color:var(--dim); font-family:'JetBrains Mono',monospace;}
+  .drop.filled{border-style:solid; border-color:var(--green);}
+
+  label{
+    display:block;
+    font-size:13px;
+    font-weight:500;
+    margin:20px 0 8px;
+    color:var(--text);
+  }
+  textarea, input[type="text"]{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    color:var(--text);
+    padding:13px 14px;
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+  }
+  textarea{min-height:80px; resize:vertical;}
+  textarea::placeholder, input::placeholder{color:var(--dim); opacity:.7;}
+  textarea:focus, input:focus{outline:none; border-color:var(--blue);}
+  .hint{font-size:11.5px; color:var(--dim); margin-top:8px; line-height:1.5;}
+
+  .env-row{
+    display:flex;
+    gap:10px;
+    margin-top:20px;
+    flex-wrap:wrap;
+  }
+  .chip{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    padding:5px 10px;
+    border-radius:5px;
+    color:var(--dim);
+  }
+  .chip b{color:var(--text);}
+
+  .btn{
+    margin-top:24px;
+    width:100%;
+    background:var(--blue);
+    color:#0C1116;
+    border:none;
+    padding:13px;
+    border-radius:8px;
+    font-size:14.5px;
+    font-weight:700;
+    cursor:pointer;
+    font-family:'Inter',sans-serif;
+  }
+  .btn:hover{filter:brightness(1.08);}
+  .btn.secondary{
+    background:var(--panel-2);
+    color:var(--text);
+    border:1px solid var(--line);
+  }
+  .btn.ghost{
+    background:transparent;
+    color:var(--dim);
+    border:1px solid var(--line);
+    width:auto;
+    padding:9px 16px;
+    margin-top:0;
+    font-size:13px;
+  }
+  .btn.ghost:hover{color:var(--text); border-color:var(--dim);}
+
+  /* Live feed */
+  .feed{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12.5px;
+    line-height:2;
+    max-height:340px;
+    overflow-y:auto;
+  }
+  .feed-line{
+    display:flex; gap:10px;
+    opacity:0;
+    animation:appear .25s ease forwards;
+  }
+  @keyframes appear{ to{opacity:1;} }
+  .feed-time{color:var(--dim); flex-shrink:0; opacity:.7;}
+  .feed-tag{ flex-shrink:0; width:110px; color:var(--amber);}
+  .feed-tag.plan{color:var(--blue);}
+  .feed-tag.reflect{color:#C58FE0;}
+  .feed-tag.decide{color:var(--green);}
+  .feed-msg{color:var(--dim);}
+  .feed-msg b{color:var(--text); font-weight:500;}
+
+  .cursor{
+    display:inline-block;
+    width:7px;height:13px;
+    background:var(--blue);
+    margin-left:2px;
+    animation:blink 1s steps(1) infinite;
+    vertical-align:middle;
+  }
+  @keyframes blink{50%{opacity:0;}}
+
+  .status-row{
+    display:flex;
+    justify-content:space-between;
+    padding-top:16px;
+    margin-top:16px;
+    border-top:1px solid var(--line);
+    font-size:11.5px;
+  }
+  .status-row .k{color:var(--dim);}
+  .status-row .v{font-family:'JetBrains Mono',monospace; color:var(--text);}
+  .dot{
+    display:inline-block;
+    width:7px;height:7px;
+    border-radius:50%;
+    background:var(--green);
+    margin-right:6px;
+  }
+  .dot.pulse{ animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  /* Results section (page 2, revealed below feed) */
+  .results{
+    margin-top:26px;
+    opacity:0;
+    max-height:0;
+    overflow:hidden;
+    transition:opacity .4s ease, max-height .5s ease;
+  }
+  .results.shown{ opacity:1; max-height:2400px; }
+
+  .results-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .results-head .dot{background:var(--green);}
+  .results-head h2{font-size:16px; font-weight:700; margin:0;}
+  .results-head .badge{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--green);
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    padding:3px 9px;
+    border-radius:12px;
+  }
+
+  .stat-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:14px;
+    margin-bottom:22px;
+  }
+  .stat{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px;
+    box-shadow:var(--shadow);
+  }
+  .stat-label{font-size:11.5px; color:var(--dim); margin-bottom:8px;}
+  .stat-val{font-family:'JetBrains Mono',monospace; font-size:21px; font-weight:600;}
+  .stat-val.accent{color:var(--green);}
+
+  .detail-grid{
+    display:grid;
+    grid-template-columns:1.2fr 1fr;
+    gap:18px;
+    margin-bottom:18px;
+  }
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{
+    text-align:left;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--dim);
+    font-weight:600;
+    padding:8px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  td{
+    padding:9px 10px;
+    border-bottom:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+    font-size:12.5px;
+  }
+  tr:last-child td{border-bottom:none;}
+  .decision-tag{
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:10px;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .decision-tag.refine{background:rgba(95,168,211,.15); color:var(--blue);}
+  .decision-tag.accept{background:rgba(111,207,151,.15); color:var(--green);}
+
+  .shap-list{display:flex; flex-direction:column; gap:10px;}
+  .shap-item{display:flex; align-items:center; gap:10px;}
+  .shap-name{font-size:12.5px; width:120px; flex-shrink:0;}
+  .shap-bar-track{flex:1; height:6px; background:var(--panel-2); border-radius:3px; position:relative;}
+  .shap-bar-fill{position:absolute; top:0; left:0; bottom:0; background:var(--blue); border-radius:3px;}
+  .shap-val{font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--dim); width:46px; text-align:right;}
+
+  .note-box{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:14px 16px;
+    font-size:12.5px;
+    color:var(--dim);
+    line-height:1.6;
+  }
+  .note-box b{color:var(--text);}
+
+  .final-actions{
+    display:flex;
+    gap:12px;
+    margin-top:20px;
+  }
+
+  @media(max-width:820px){
+    .split, .detail-grid{grid-template-columns:1fr;}
+    .stat-grid{grid-template-columns:repeat(2,1fr);}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand-group">
+      <div class="brand">agentic-automl</div>
+      <div class="crumb" id="crumb">/ <b>new run</b></div>
+    </div>
+    <div class="top-actions">
+      <div class="env">HF_MODEL <b>configured</b> · max_iterations <b>5</b></div>
+      <div class="theme-toggle">
+        <button id="btn-dark" class="active" onclick="setTheme('dark')">◐ Dark</button>
+        <button id="btn-light" onclick="setTheme('light')">☀ Light</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE 1: NEW RUN -->
+  <section class="page visible" id="page-new">
+    <h1>Point it at a CSV. Tell it what to predict.</h1>
+    <p class="sub">Four agents plan and refine the pipeline; deterministic code trains, evaluates, and stores the result. Every fallback and decision gets logged as it happens.</p>
+
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Configure run</div></div>
+
+      <div class="drop" id="dropzone" onclick="fillDrop()">
+        <div class="drop-title" id="drop-title">Drop dataset.csv</div>
+        <div class="drop-sub" id="drop-sub">no_file_selected</div>
+      </div>
+
+      <label>Prediction goal</label>
+      <textarea id="goal-input" placeholder="Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea>
+      <div class="hint">Mention "fast," "explainable," or "as accurate as possible" — sensible defaults are used otherwise.</div>
+
+      <div class="env-row">
+        <div class="chip">split <b>80/20</b></div>
+        <div class="chip">seed <b>42</b></div>
+        <div class="chip">cv <b>3-fold</b></div>
+        <div class="chip">tuner <b>auto</b></div>
+      </div>
+
+      <button class="btn" onclick="startRun()">Start run →</button>
+    </div>
+  </section>
+
+  <!-- PAGE 2: RUN + RESULTS -->
+  <section class="page" id="page-run">
+    <button class="btn ghost" onclick="goBack()" style="margin-bottom:18px;">← New run</button>
+
+    <h1 style="margin-top:0;">Run <span id="run-id" style="color:var(--dim); font-family:'JetBrains Mono',monospace; font-size:20px;">#a41f9c</span></h1>
+    <p class="sub" id="run-goal-echo">Predict whether a customer will churn. Accuracy matters most, but I also want to understand why.</p>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Agent activity</div>
+        <div class="chip" id="live-chip"><span class="dot pulse" id="live-dot"></span><span id="live-label">running</span></div>
+      </div>
+
+      <div class="feed" id="feed"></div>
+
+      <div class="status-row">
+        <div><span class="k">iteration</span> <span class="v" id="stat-iter">1 / 5</span></div>
+        <div><span class="k">state</span> <span class="v" id="stat-state">running</span></div>
+        <div><span class="k">score</span> <span class="v" id="stat-score">—</span></div>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="results" id="results">
+      <div class="results-head" style="margin-top:28px;">
+        <span class="dot"></span>
+        <h2>Final report</h2>
+        <span class="badge">finalized</span>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="stat-label">Model family</div>
+          <div class="stat-val">GradientBoosting</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Composite score</div>
+          <div class="stat-val accent">0.891</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Weighted F1</div>
+          <div class="stat-val">0.874</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Iterations run</div>
+          <div class="stat-val">3 / 5</div>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Iteration history</div></div>
+          <table>
+            <tr><th>#</th><th>Weakest block</th><th>Score</th><th>Decision</th></tr>
+            <tr><td>1</td><td>feature engineering</td><td>0.842</td><td><span class="decision-tag refine">refine</span></td></tr>
+            <tr><td>2</td><td>model tuning</td><td>0.867</td><td><span class="decision-tag refine">refine</span></td></tr>
+            <tr><td>3</td><td>—</td><td>0.891</td><td><span class="decision-tag accept">accept</span></td></tr>
+          </table>
+          <div class="note-box" style="margin-top:14px;">
+            <b>Fallback used:</b> feature-engineering step "AutoFeatureSynth" was not recognized and was skipped in iteration 1 — no effect on final result.
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Top features (SHAP)</div></div>
+          <div class="shap-list">
+            <div class="shap-item"><div class="shap-name">tenure_months</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:88%"></div></div><div class="shap-val">0.31</div></div>
+            <div class="shap-item"><div class="shap-name">monthly_charges</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:64%"></div></div><div class="shap-val">0.22</div></div>
+            <div class="shap-item"><div class="shap-name">contract_type</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:51%"></div></div><div class="shap-val">0.18</div></div>
+            <div class="shap-item"><div class="shap-name">support_calls</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:34%"></div></div><div class="shap-val">0.12</div></div>
+            <div class="shap-item"><div class="shap-name">payment_method</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:21%"></div></div><div class="shap-val">0.07</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="final-actions">
+        <button class="btn" style="margin-top:0;">Download model (.joblib)</button>
+        <button class="btn secondary" style="margin-top:0;">View full report JSON</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  function setTheme(mode){
+    document.documentElement.setAttribute('data-theme', mode);
+    document.getElementById('btn-dark').classList.toggle('active', mode==='dark');
+    document.getElementById('btn-light').classList.toggle('active', mode==='light');
+  }
+
+  function fillDrop(){
+    document.getElementById('dropzone').classList.add('filled');
+    document.getElementById('drop-title').textContent = 'customer_churn.csv';
+    document.getElementById('drop-sub').textContent = '4 218 rows · 12 columns · 340 KB';
+  }
+
+  const feedScript = [
+    {t:'00:00.1', tag:'requirement', msg:'reading dataset · <b>4 218 rows</b>, 12 columns'},
+    {t:'00:01.4', tag:'requirement', msg:'target guessed as <b>churned</b> · confidence 0.91'},
+    {t:'00:02.0', tag:'requirement', msg:'problem type · <b>classification</b>'},
+    {t:'00:02.8', tag:'plan', msg:'encoder → <b>OneHotEncoder</b>, scaler → <b>StandardScaler</b>'},
+    {t:'00:03.1', tag:'plan', msg:'model family → <b>GradientBoosting</b>, tuner → <b>OptunaTPE</b>'},
+    {t:'00:03.2', tag:'plan', msg:'plan verified · no blocking issues'},
+    {t:'00:11.6', tag:'reflect', msg:'weakest block → <b>feature engineering</b>'},
+    {t:'00:11.9', tag:'decide', msg:'score 0.842 → <b>refine</b> and continue'},
+    {t:'00:19.3', tag:'reflect', msg:'weakest block → <b>model tuning</b>'},
+    {t:'00:19.6', tag:'decide', msg:'score 0.867 → <b>refine</b> and continue'},
+    {t:'00:27.0', tag:'reflect', msg:'no net gain from further refinement'},
+    {t:'00:27.3', tag:'decide', msg:'score 0.891 → <b>accept</b> · run finalized'},
+  ];
+
+  function tagClass(tag){
+    if(tag==='plan') return 'feed-tag plan';
+    if(tag==='reflect') return 'feed-tag reflect';
+    if(tag==='decide') return 'feed-tag decide';
+    return 'feed-tag';
+  }
+
+  function startRun(){
+    const goal = document.getElementById('goal-input').value.trim();
+    if(goal) document.getElementById('run-goal-echo').textContent = goal;
+
+    document.getElementById('page-new').classList.remove('visible');
+    document.getElementById('page-run').classList.add('visible');
+    document.getElementById('crumb').innerHTML = '/ <b>run #a41f9c</b>';
+
+    const feed = document.getElementById('feed');
+    feed.innerHTML = '';
+    document.getElementById('results').classList.remove('shown');
+    document.getElementById('stat-state').textContent = 'running';
+    document.getElementById('stat-score').textContent = '—';
+    document.getElementById('stat-iter').textContent = '1 / 5';
+    document.getElementById('live-label').textContent = 'running';
+    document.getElementById('live-dot').classList.add('pulse');
+
+    feedScript.forEach((line, i) => {
+      setTimeout(() => {
+        const div = document.createElement('div');
+        div.className = 'feed-line';
+        div.innerHTML = `<span class="feed-time">${line.t}</span><span class="${tagClass(line.tag)}">${line.tag}</span><span class="feed-msg">${line.msg}</span>`;
+        feed.appendChild(div);
+        feed.scrollTop = feed.scrollHeight;
+
+        if(line.tag==='decide'){
+          const scoreMatch = line.msg.match(/score ([\d.]+)/);
+          if(scoreMatch) document.getElementById('stat-score').textContent = scoreMatch[1];
+        }
+
+        if(i === feedScript.length - 1){
+          document.getElementById('stat-state').textContent = 'finalized';
+          document.getElementById('stat-iter').textContent = '3 / 5';
+          document.getElementById('live-label').textContent = 'finalized';
+          document.getElementById('live-dot').classList.remove('pulse');
+          setTimeout(() => {
+            document.getElementById('results').classList.add('shown');
+            document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
+          }, 500);
+        }
+      }, i * 450);
+    });
+  }
+
+  function goBack(){
+    document.getElementById('page-run').classList.remove('visible');
+    document.getElementById('page-new').classList.add('visible');
+    document.getElementById('crumb').innerHTML = '/ <b>new run</b>';
+  }
+</script>
+</body>
+</html>

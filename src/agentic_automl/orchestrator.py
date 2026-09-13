@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
+import time
 from typing import Literal
 
 import joblib
@@ -30,6 +32,8 @@ from .repository import ExperimentRecord, ExperimentRepository, retrieve_similar
 from .schemas import DecisionOutput, PlanSpec, ReflectionOutput, RequirementSpec, ValidationReport
 from .scoring import compute_validation, should_generate_shap
 from .verification import verify_plan
+
+logger = logging.getLogger(__name__)
 
 RunStatus = Literal["running", "awaiting_clarification", "finalized", "failed"]
 
@@ -61,6 +65,9 @@ class RunState:
     user_goal: str
     df: pd.DataFrame
     status: RunStatus = "running"
+    current_task: str = "Starting run"
+    activity_log: list[dict[str, str]] = field(default_factory=list)
+    started_at: float = field(default_factory=time.monotonic)
     clarification_question: str | None = None
     requirement: RequirementSpec | None = None
     iteration: int = 0
@@ -79,6 +86,17 @@ class RunState:
     error: str | None = None
 
 
+def _record_activity(state: RunState, task: str, tag: str = "agent") -> None:
+    elapsed = time.monotonic() - state.started_at
+    state.activity_log.append(
+        {
+            "time": f"{elapsed // 60:02.0f}:{elapsed % 60:04.1f}",
+            "tag": tag,
+            "message": task,
+        }
+    )
+
+
 def create_run(dataset_path: Path, dataset_name: str, user_goal: str) -> RunState:
     df = pd.read_csv(dataset_path)
     return RunState(
@@ -91,12 +109,16 @@ def create_run(dataset_path: Path, dataset_name: str, user_goal: str) -> RunStat
 
 
 def _run_requirement_understanding(state: RunState) -> None:
+    state.current_task = "Understanding requirements and inspecting dataset"
+    _record_activity(state, state.current_task, "requirement")
+    logger.info("run=%s task=%s", state.run_id, state.current_task)
     meta_features = extract_meta_features(state.df, target_column=None)
     spec = understand_requirement(state.user_goal, meta_features)
 
     if needs_clarification(spec):
         state.requirement = spec
         state.status = "awaiting_clarification"
+        state.current_task = "Waiting for target column clarification"
         state.clarification_question = (
             f"I'm not fully sure which column you want to predict "
             f"(best guess: '{spec.target_column}', confidence {spec.target_confidence:.0%}). "
@@ -114,6 +136,7 @@ def apply_clarification(state: RunState, answer: str) -> RunState:
         raise ValueError("Cannot apply clarification before requirement understanding has run")
     state.requirement = apply_clarification_answer(state.requirement, answer)
     state.status = "running"
+    state.current_task = "Resuming after target column clarification"
     state.clarification_question = None
     return state
 
@@ -121,6 +144,14 @@ def apply_clarification(state: RunState, answer: str) -> RunState:
 def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
     requirement = state.requirement
     assert requirement is not None
+    iteration_number = state.iteration + 1
+
+    def set_task(task: str) -> None:
+        state.current_task = task
+        _record_activity(state, task, "plan" if "Plan" in task or "plan" in task else "agent")
+        logger.info("run=%s iteration=%s task=%s", state.run_id, iteration_number, task)
+
+    set_task("Finding similar experiments")
 
     meta_features = extract_meta_features(state.df, target_column=requirement.target_column)
     similar_experiments = retrieve_similar_experiments(meta_features, k=config.RETRIEVAL_TOP_K, repo=repo)
@@ -128,7 +159,8 @@ def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
     # --- plan -> verify, retried deterministically on verification failure ---
     plan = None
     verification_warnings: list[str] = []
-    for _ in range(MAX_VERIFICATION_RETRIES):
+    for attempt in range(MAX_VERIFICATION_RETRIES):
+        set_task(f"Planning and verifying pipeline (attempt {attempt + 1}/{MAX_VERIFICATION_RETRIES})")
         plan = generate_plan(
             requirement,
             meta_features,
@@ -143,6 +175,12 @@ def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
             verification_warnings = verification.warnings
             state.last_verification_failure = None
             break
+        logger.warning(
+            "run=%s iteration=%s task=plan verification failed failures=%s",
+            state.run_id,
+            iteration_number,
+            verification.failures,
+        )
         state.last_verification_failure = "; ".join(verification.failures)
         state.previous_plan = plan
     else:
@@ -152,12 +190,26 @@ def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
         )
 
     # --- execute ---
+    set_task(f"Training and evaluating {plan.model_family}")
     want_shap = should_generate_shap(requirement.constraint_weights, requirement.weight_confidence)
-    outcome = run_pipeline(plan, requirement, state.df, generate_shap=want_shap)
+
+    def report_execution_progress(task: str) -> None:
+        state.current_task = task
+        _record_activity(state, task, "execute")
+        logger.info("run=%s iteration=%s task=%s", state.run_id, iteration_number, task)
+
+    outcome = run_pipeline(
+        plan,
+        requirement,
+        state.df,
+        generate_shap=want_shap,
+        progress_callback=report_execution_progress,
+    )
     execution_result = outcome.result
     state.rolling_max_latency = max(state.rolling_max_latency, execution_result.latency_seconds)
 
     # --- validate ---
+    set_task("Computing validation score")
     validation: ValidationReport = compute_validation(
         raw_metrics=execution_result.metrics,
         latency_seconds=execution_result.latency_seconds,
@@ -170,10 +222,12 @@ def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
     state.score_history.append(validation.composite_score)
 
     # --- reflect ---
+    set_task("Reflecting on the weakest pipeline block")
     reflection = reflect(validation)
     state.weakest_block_history.append(reflection.weakest_block)
 
     # --- decide (deterministic guardrails live inside decide()) ---
+    set_task("Choosing whether to refine, replan, or finish")
     state.iteration += 1
     decision = decide(
         composite_score=validation.composite_score,
@@ -212,6 +266,7 @@ def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
     state.final_metrics = execution_result.metrics
 
     if decision.decision in ("accept", "stop"):
+        set_task("Saving final model and report")
         _finalize(state, plan, outcome, decision, repo)
     elif decision.decision == "replan":
         state.last_reflection = None  # replan = fresh start, not a targeted revision
@@ -291,7 +346,9 @@ def run_to_completion(state: RunState, repo: ExperimentRepository | None = None)
         return state
     except Exception as exc:
         state.status = "failed"
+        state.current_task = "Run failed"
         state.error = str(exc)
+        logger.exception("run=%s failed", state.run_id)
         return state
     finally:
         if owns_repo:

@@ -27,19 +27,10 @@ export HF_MODEL="meta-llama/Llama-3.3-70B-Instruct"   # default
 export HF_PROVIDER="auto"                              # default
 ```
 
-## Run
+## Start the application
 
-```bash
-uv run agentic-automl
-```
-
-Then open http://127.0.0.1:8000 — upload a CSV, describe what to predict in plain English,
-answer the one clarifying question if asked, and watch the run finalize into a report
-(metrics, SHAP feature importance if interpretability was requested, assumptions made, run
-history, and a downloadable trained model `.joblib`).
-
-Env vars: `AUTOML_HOST` (default `127.0.0.1`), `AUTOML_PORT` (default `8000`),
-`AUTOML_MAX_ITERATIONS` (default `5`).
+See [startup.md](startup.md) for environment configuration, launch instructions, progress
+logging, and troubleshooting.
 
 ## Tests
 

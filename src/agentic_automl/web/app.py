@@ -41,6 +41,8 @@ def _serialize(state: RunState) -> dict:
         "run_id": state.run_id,
         "dataset_name": state.dataset_name,
         "status": state.status,
+        "current_task": state.current_task,
+        "activity_log": state.activity_log,
         "clarification_question": state.clarification_question,
         "iteration": state.iteration,
         "max_iterations": config.MAX_ITERATIONS,
@@ -52,6 +54,8 @@ def _serialize(state: RunState) -> dict:
                 "weakest_block": log.weakest_block,
                 "decision": log.decision,
                 "decision_rationale": log.decision_rationale,
+                "fallbacks": log.fallbacks,
+                "verification_warnings": log.verification_warnings,
             }
             for log in state.iteration_logs
         ],

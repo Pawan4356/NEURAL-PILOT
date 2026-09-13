@@ -1,312 +1,40 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Agentic AutoML</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic AutoML - Console</title>
 <style>
-  :root {
-    --bg: #f6f7f9;
-    --card: #ffffff;
-    --border: #e2e5ea;
-    --text: #1a1d23;
-    --muted: #6b7280;
-    --accent: #4f46e5;
-    --accent-dark: #4338ca;
-    --good: #16a34a;
-    --warn: #d97706;
-    --bad: #dc2626;
-    --radius: 10px;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.5;
-  }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
-  header { margin-bottom: 28px; }
-  h1 { font-size: 1.6rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 0.95rem; }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 22px;
-    margin-bottom: 20px;
-  }
-  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
-  .hint { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
-  input[type="file"], textarea, input[type="text"] {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-family: inherit;
-    background: #fff;
-  }
-  textarea { resize: vertical; min-height: 70px; }
-  .field { margin-bottom: 16px; }
-  button {
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  button:hover { background: var(--accent-dark); }
-  button:disabled { background: #b9b9c6; cursor: not-allowed; }
-  .hidden { display: none !important; }
-  .status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  .spinner {
-    width: 16px; height: 16px; border-radius: 50%;
-    border: 2.5px solid var(--border); border-top-color: var(--accent);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .badge {
-    display: inline-block; padding: 2px 9px; border-radius: 999px;
-    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
-  }
-  .badge.running { background: #eef2ff; color: var(--accent); }
-  .badge.finalized { background: #ecfdf5; color: var(--good); }
-  .badge.failed { background: #fef2f2; color: var(--bad); }
-  .badge.awaiting_clarification { background: #fffbeb; color: var(--warn); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; }
-  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 14px 0; }
-  .metric { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
-  .metric .val { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
-  .metric .lbl { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
-  ul.assumptions { margin: 6px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--muted); }
-  .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.85rem; }
-  .bar-label { width: 130px; flex-shrink: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-  .bar-track { flex: 1; background: #f1f2f6; border-radius: 4px; height: 10px; overflow: hidden; }
-  .bar-fill { background: var(--accent); height: 100%; }
-  .error-box { background: #fef2f2; border: 1px solid #fecaca; color: var(--bad); padding: 12px 14px; border-radius: 8px; font-size: 0.9rem; }
-  h3 { font-size: 1rem; margin: 18px 0 8px; }
-  .section-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 12px; }
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+:root{--bg:#12151a;--panel:#181c22;--panel2:#1e232b;--line:#2a2f38;--text:#e7eaee;--dim:#8a93a2;--amber:#e3a857;--green:#6fcf97;--blue:#5fa8d3;--danger:#e0788a;--shadow:none}
+html[data-theme=light]{--bg:#f6f7f9;--panel:#fff;--panel2:#f1f3f6;--line:#dfe3e8;--text:#181c22;--dim:#667082;--amber:#9c6423;--green:#1f8a5b;--blue:#1d6fa5;--danger:#c24a5d;--shadow:0 1px 2px rgba(20,24,30,.05)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;transition:background .15s,color .15s}.wrap{max-width:1100px;margin:auto;padding:32px 28px 90px}.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:20px;border-bottom:1px solid var(--line)}.brand-group,.top-actions,.theme-toggle,.panel-head,.results-head,.status-row{display:flex;align-items:center}.brand-group{gap:18px}.brand{font-size:15px;font-weight:600}.brand span{color:var(--dim);font-weight:400}.crumb,.env,.chip,.feed,.stat-val,td{font-family:'JetBrains Mono',monospace}.crumb,.env{font-size:12px;color:var(--dim)}.crumb b,.env b{color:var(--text)}.env b{color:var(--green)}.top-actions{gap:14px}.theme-toggle{gap:2px;padding:3px;background:var(--panel2);border:1px solid var(--line);border-radius:20px}.theme-toggle button,.btn{font-family:'DM Sans',sans-serif;cursor:pointer}.theme-toggle button{border:0;background:transparent;color:var(--dim);font-size:12px;padding:5px 11px;border-radius:16px;font-weight:500}.theme-toggle button.active{background:var(--panel);color:var(--text);box-shadow:var(--shadow)}.page{display:none}.page.visible{display:block}h1{font-size:26px;font-weight:700;margin:24px 0 8px;letter-spacing:0}.sub{color:var(--dim);font-size:14.5px;margin:0 0 32px;max-width:650px;line-height:1.5}.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:26px;box-shadow:var(--shadow)}.panel-head{justify-content:space-between;margin-bottom:20px}.panel-title{font-size:12.5px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}.drop{border:1px dashed var(--line);border-radius:8px;padding:26px 18px;text-align:center;cursor:pointer;background:var(--panel2)}.drop:hover,.drop.filled{border-color:var(--green)}.drop-title{font-size:14px;font-weight:600;margin-bottom:4px}.drop-sub{font-size:12px;color:var(--dim);font-family:'JetBrains Mono',monospace}label{display:block;font-size:13px;font-weight:500;margin:20px 0 8px}textarea,input[type=text]{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:13px 14px;font:14px 'DM Sans',sans-serif}textarea{min-height:80px;resize:vertical}textarea:focus,input:focus{outline:none;border-color:var(--blue)}textarea::placeholder,input::placeholder{color:var(--dim);opacity:.7}.hint{font-size:11.5px;color:var(--dim);margin-top:8px;line-height:1.5}.env-row{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}.chip{font-size:11px;background:var(--panel2);border:1px solid var(--line);padding:5px 10px;border-radius:5px;color:var(--dim)}.chip b{color:var(--text)}.btn{margin-top:24px;width:100%;background:var(--blue);color:#0c1116;border:0;padding:13px;border-radius:8px;font-size:14.5px;font-weight:700}.btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.55;cursor:wait}.btn.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--line)}.btn.ghost{background:transparent;color:var(--dim);border:1px solid var(--line);width:auto;padding:9px 16px;margin-top:0;font-size:13px}.btn.ghost:hover{color:var(--text);border-color:var(--dim)}.feed{font-size:12.5px;line-height:2;max-height:340px;overflow-y:auto}.feed-line{display:flex;gap:10px;animation:appear .25s ease forwards}.feed-time{color:var(--dim);flex-shrink:0;opacity:.7}.feed-tag{flex-shrink:0;width:100px;color:var(--amber)}.feed-tag.plan{color:var(--blue)}.feed-tag.execute{color:#c58fe0}.feed-tag.decision{color:var(--green)}.feed-msg{color:var(--dim)}.feed-msg b{color:var(--text);font-weight:500}@keyframes appear{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}.status-row{justify-content:space-between;padding-top:16px;margin-top:16px;border-top:1px solid var(--line);font-size:11.5px}.status-row .k{color:var(--dim)}.status-row .v{font-family:'JetBrains Mono',monospace}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px}.dot.pulse{animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.35}}.status-stat{display:flex;gap:5px}.results{margin-top:26px;opacity:0;max-height:0;overflow:hidden;transition:opacity .4s,max-height .5s}.results.shown{opacity:1;max-height:3000px}.results-head{gap:10px;margin:28px 0 18px}.results-head h2{font-size:16px;margin:0}.badge,.decision-tag{font:11px 'JetBrains Mono',monospace;border:1px solid var(--line);border-radius:12px;padding:3px 9px;color:var(--green);background:var(--panel2)}.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;box-shadow:var(--shadow)}.stat-label{font-size:11.5px;color:var(--dim);margin-bottom:8px}.stat-val{font-size:19px;font-weight:600;overflow-wrap:anywhere}.stat-val.accent{color:var(--green)}.detail-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-bottom:18px}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line)}td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:12px}tr:last-child td{border-bottom:0}.decision-tag.refine{color:var(--blue)}.decision-tag.accept{color:var(--green)}.shap-list{display:flex;flex-direction:column;gap:10px}.shap-item{display:flex;align-items:center;gap:10px}.shap-name{font-size:12.5px;width:120px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis}.shap-bar-track{flex:1;height:6px;background:var(--panel2);border-radius:3px;position:relative}.shap-bar-fill{position:absolute;inset:0 auto 0 0;background:var(--blue);border-radius:3px}.shap-val{font:11.5px 'JetBrains Mono',monospace;color:var(--dim);width:46px;text-align:right}.note-box{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-size:12.5px;color:var(--dim);line-height:1.6}.note-box b{color:var(--text)}.final-actions{display:flex;gap:12px;margin-top:20px}.clarify{margin-top:20px}.error-box{color:var(--danger);border:1px solid var(--danger);padding:12px;border-radius:8px;margin-top:16px}.hidden{display:none!important}@media(max-width:820px){.topbar{align-items:flex-start;gap:16px;flex-direction:column}.env{display:none}.stat-grid{grid-template-columns:repeat(2,1fr)}.detail-grid{grid-template-columns:1fr}}@media(max-width:520px){.wrap{padding:22px 16px 60px}.stat-grid{grid-template-columns:1fr}.status-row{gap:8px;align-items:flex-start;flex-wrap:wrap}.feed-line{gap:6px}.feed-tag{width:78px}.final-actions{flex-direction:column}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>Agentic AutoML</h1>
-    <div class="sub">Upload a dataset, describe what you want to predict in plain English, and let the agents build a model.</div>
-  </header>
-
-  <div class="card" id="upload-card">
-    <div class="section-title">1. Start a run</div>
-    <form id="upload-form">
-      <div class="field">
-        <label for="file">Dataset (.csv)</label>
-        <input type="file" id="file" name="file" accept=".csv" required />
-      </div>
-      <div class="field">
-        <label for="goal">What do you want to predict?</label>
-        <textarea id="goal" name="goal" placeholder="e.g. Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea>
-        <div class="hint">Mention priorities like "fast", "explainable", or "as accurate as possible" if you have them — otherwise sensible defaults are used.</div>
-      </div>
-      <button type="submit" id="submit-btn">Start</button>
-    </form>
-  </div>
-
-  <div class="card hidden" id="clarify-card">
-    <div class="section-title">A quick question</div>
-    <p id="clarify-question"></p>
-    <form id="clarify-form">
-      <div class="field">
-        <input type="text" id="clarify-answer" placeholder="Type the exact column name" required />
-      </div>
-      <button type="submit">Continue</button>
-    </form>
-  </div>
-
-  <div class="card hidden" id="status-card">
-    <div class="status-row">
-      <div class="spinner" id="status-spinner"></div>
-      <span class="badge running" id="status-badge">running</span>
-      <span id="status-text" class="hint"></span>
-    </div>
-    <div id="iteration-log"></div>
-  </div>
-
-  <div class="card hidden" id="error-card">
-    <div class="section-title">Something went wrong</div>
-    <div class="error-box" id="error-text"></div>
-  </div>
-
-  <div class="card hidden" id="report-card"></div>
+<header class="topbar"><div class="brand-group"><div class="brand">agentic-automl</div><div class="crumb" id="crumb">/ <b>new run</b></div></div><div class="top-actions"><div class="env">HF_MODEL <b>configured</b> · max_iterations <b id="max-iterations">5</b></div><div class="theme-toggle"><button id="btn-dark" class="active" type="button">◐ Dark</button><button id="btn-light" type="button">☀ Light</button></div></div></header>
+<section class="page visible" id="page-new"><h1>Point it at a CSV. Tell it what to predict.</h1><p class="sub">Four agents plan and refine the pipeline; deterministic code trains, evaluates, and stores the result. Every fallback and decision gets logged as it happens.</p><div class="panel"><div class="panel-head"><div class="panel-title">Configure run</div></div><input id="file" type="file" accept=".csv" hidden><div class="drop" id="dropzone" role="button" tabindex="0"><div class="drop-title" id="drop-title">Drop dataset.csv</div><div class="drop-sub" id="drop-sub">no_file_selected</div></div><label for="goal-input">Prediction goal</label><textarea id="goal-input" placeholder="Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea><div class="hint">Mention "fast," "explainable," or "as accurate as possible". Sensible defaults are used otherwise.</div><div class="env-row"><div class="chip">split <b>80/20</b></div><div class="chip">seed <b>42</b></div><div class="chip">cv <b>3-fold</b></div><div class="chip">tuner <b>auto</b></div></div><button class="btn" id="start-btn" type="button">Start run →</button><div id="new-error" class="error-box hidden"></div></div></section>
+<section class="page" id="page-run"><button class="btn ghost" id="back-btn" type="button">← New run</button><h1 style="margin-top:18px">Run <span id="run-id" style="color:var(--dim);font:20px 'JetBrains Mono',monospace">#</span></h1><p class="sub" id="run-goal-echo"></p><div class="panel"><div class="panel-head"><div class="panel-title">Agent activity</div><div class="chip"><span class="dot pulse" id="live-dot"></span><span id="live-label">running</span></div></div><div class="feed" id="feed"></div><div class="status-row"><div class="status-stat"><span class="k">iteration</span><span class="v" id="stat-iter">0 / 5</span></div><div class="status-stat"><span class="k">state</span><span class="v" id="stat-state">running</span></div><div class="status-stat"><span class="k">score</span><span class="v" id="stat-score">-</span></div></div></div><div class="clarify panel hidden" id="clarify-card"><div class="panel-title">Target column clarification</div><p id="clarify-question" class="sub" style="margin:14px 0"></p><input id="clarify-answer" type="text" placeholder="Type the exact column name"><button class="btn" id="clarify-btn" type="button">Continue</button></div><div id="run-error" class="error-box hidden"></div><div class="results" id="results"><div class="results-head"><span class="dot"></span><h2>Final report</h2><span class="badge">finalized</span></div><div class="stat-grid" id="stats"></div><div class="detail-grid"><div class="panel"><div class="panel-head"><div class="panel-title">Iteration history</div></div><div style="overflow-x:auto"><table><thead><tr><th>#</th><th>Weakest block</th><th>Score</th><th>Decision</th></tr></thead><tbody id="history"></tbody></table></div><div class="note-box hidden" id="fallback-note" style="margin-top:14px"></div></div><div class="panel"><div class="panel-head"><div class="panel-title">Top features (SHAP)</div></div><div class="shap-list" id="shap-list"></div><div id="no-shap" class="hint hidden">No SHAP summary was generated for this run.</div></div></div><div class="final-actions"><a id="download-link" class="btn" style="text-align:center;text-decoration:none;margin-top:0">Download model (.joblib)</a><button class="btn secondary" id="json-btn" type="button" style="margin-top:0">View full report JSON</button></div></div></section>
 </div>
-
 <script>
-let currentRunId = null;
-let pollHandle = null;
-
-const el = (id) => document.getElementById(id);
-
-function show(id) { el(id).classList.remove("hidden"); }
-function hide(id) { el(id).classList.add("hidden"); }
-
-el("upload-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const fileInput = el("file");
-  const goal = el("goal").value;
-  if (!fileInput.files.length) return;
-
-  const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
-  formData.append("goal", goal);
-
-  el("submit-btn").disabled = true;
-  el("submit-btn").textContent = "Starting...";
-
-  try {
-    const res = await fetch("/api/runs", { method: "POST", body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Failed to start run");
-    currentRunId = data.run_id;
-    show("status-card");
-    startPolling();
-  } catch (err) {
-    showError(err.message);
-  } finally {
-    el("submit-btn").disabled = false;
-    el("submit-btn").textContent = "Start";
-  }
-});
-
-el("clarify-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const answer = el("clarify-answer").value;
-  const formData = new FormData();
-  formData.append("answer", answer);
-  await fetch(`/api/runs/${currentRunId}/clarify`, { method: "POST", body: formData });
-  hide("clarify-card");
-  show("status-card");
-  startPolling();
-});
-
-function startPolling() {
-  if (pollHandle) clearInterval(pollHandle);
-  pollHandle = setInterval(fetchStatus, 1800);
-  fetchStatus();
-}
-
-async function fetchStatus() {
-  const res = await fetch(`/api/runs/${currentRunId}`);
-  const data = await res.json();
-  render(data);
-  if (data.status === "finalized" || data.status === "failed" || data.status === "awaiting_clarification") {
-    clearInterval(pollHandle);
-  }
-}
-
-function render(data) {
-  const badge = el("status-badge");
-  badge.className = "badge " + data.status;
-  badge.textContent = data.status.replace("_", " ");
-  el("status-spinner").style.display = data.status === "running" ? "block" : "none";
-  el("status-text").textContent = `Iteration ${data.iteration} / up to ${data.max_iterations}`;
-
-  el("iteration-log").innerHTML = data.iteration_logs.map(log => `
-    <div style="padding:8px 0;border-top:1px solid var(--border);font-size:0.85rem;">
-      <strong>Iteration ${log.iteration}</strong> — model: ${log.plan_summary.model_family},
-      score: ${log.composite_score}, weakest block: ${log.weakest_block},
-      decision: <em>${log.decision}</em>
-    </div>
-  `).join("");
-
-  if (data.status === "awaiting_clarification") {
-    hide("status-card");
-    el("clarify-question").textContent = data.clarification_question;
-    show("clarify-card");
-  }
-
-  if (data.status === "failed") {
-    showError(data.error || "Unknown error.");
-  }
-
-  if (data.status === "finalized" && data.final_report) {
-    renderReport(data.final_report);
-  }
-}
-
-function showError(message) {
-  el("error-text").textContent = message;
-  show("error-card");
-}
-
-function renderReport(report) {
-  const shapRows = report.shap_summary && report.shap_summary.top_features
-    ? report.shap_summary.top_features
-    : [];
-  const maxShap = shapRows.length ? Math.max(...shapRows.map(r => r.mean_abs_shap)) : 1;
-
-  const metricsHtml = Object.entries(report.metrics).map(([k, v]) => `
-    <div class="metric"><div class="val">${(typeof v === "number" ? v.toFixed(3) : v)}</div><div class="lbl">${k}</div></div>
-  `).join("");
-
-  const shapHtml = shapRows.length ? `
-    <h3>What matters most (SHAP)</h3>
-    ${shapRows.map(r => `
-      <div class="bar-row">
-        <div class="bar-label" title="${r.feature}">${r.feature}</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${(r.mean_abs_shap / maxShap * 100).toFixed(0)}%"></div></div>
-      </div>
-    `).join("")}
-  ` : "";
-
-  const historyHtml = `
-    <h3>Run history</h3>
-    <table>
-      <thead><tr><th>#</th><th>Model</th><th>Score</th><th>Weakest block</th><th>Decision</th></tr></thead>
-      <tbody>
-        ${report.run_history.map(h => `
-          <tr>
-            <td>${h.iteration}</td>
-            <td>${h.plan_summary.model_family}</td>
-            <td>${h.composite_score.toFixed(3)}</td>
-            <td>${h.weakest_block}</td>
-            <td>${h.decision}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-
-  const assumptionsHtml = report.assumptions.length ? `
-    <h3>Assumptions made</h3>
-    <ul class="assumptions">${report.assumptions.map(a => `<li>${a}</li>`).join("")}</ul>
-  ` : "";
-
-  el("report-card").innerHTML = `
-    <div class="section-title">Final report</div>
-    <p class="hint">
-      Target: <strong>${report.target_column}</strong> ·
-      Problem type: <strong>${report.problem_type}</strong> ·
-      Model: <strong>${report.model_family}</strong> ·
-      Decision: <strong>${report.final_decision}</strong>
-    </p>
-    <div class="metrics-grid">${metricsHtml}</div>
-    <p class="hint">Composite score: <strong>${report.composite_score.toFixed(3)}</strong> — ${report.final_decision_rationale}</p>
-    ${shapHtml}
-    ${historyHtml}
-    ${assumptionsHtml}
-    <div style="margin-top:16px;">
-      <a href="/api/runs/${report.run_id}/model"><button type="button">Download trained model (.joblib)</button></a>
-    </div>
-  `;
-  show("report-card");
-  hide("status-card");
-}
+let currentRunId=null,pollHandle=null,seenActivity=0,lastReport=null;
+const $=id=>document.getElementById(id), escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function setTheme(mode){document.documentElement.dataset.theme=mode;$('btn-dark').classList.toggle('active',mode==='dark');$('btn-light').classList.toggle('active',mode==='light');localStorage.setItem('automl-theme',mode)}
+function show(id){$(id).classList.remove('hidden')} function hide(id){$(id).classList.add('hidden')}
+function tagClass(tag){return tag==='plan'?'feed-tag plan':tag==='execute'?'feed-tag execute':tag==='decision'?'feed-tag decision':'feed-tag'}
+function formatTask(task){return escapeHtml(task).replace(/(score [0-9.]+)/gi,'<b>$1</b>')}
+function renderActivity(data){const activity=data.activity_log||[];const feed=$('feed');activity.slice(seenActivity).forEach(item=>{const line=document.createElement('div');line.className='feed-line';line.innerHTML=`<span class="feed-time">${escapeHtml(item.time)}</span><span class="${tagClass(item.tag)}">${escapeHtml(item.tag)}</span><span class="feed-msg">${formatTask(item.message)}</span>`;feed.appendChild(line)});seenActivity=activity.length;feed.scrollTop=feed.scrollHeight}
+function setFile(file){if(!file)return;$('file').files.length; $('dropzone').classList.add('filled');$('drop-title').textContent=file.name;$('drop-sub').textContent=`${(file.size/1024).toFixed(0)} KB · ready to upload`}
+$('btn-dark').onclick=()=>setTheme('dark');$('btn-light').onclick=()=>setTheme('light');if(localStorage.getItem('automl-theme'))setTheme(localStorage.getItem('automl-theme'));
+$('dropzone').onclick=()=>$('file').click();$('dropzone').onkeydown=e=>{if(e.key==='Enter'||e.key===' ')$('file').click()};$('file').onchange=e=>setFile(e.target.files[0]);
+$('start-btn').onclick=async()=>{const file=$('file').files[0],goal=$('goal-input').value.trim();if(!file){$('new-error').textContent='Choose a CSV dataset first.';show('new-error');return}if(!goal){$('new-error').textContent='Describe what you want to predict.';show('new-error');return}hide('new-error');$('start-btn').disabled=true;const body=new FormData();body.append('file',file);body.append('goal',goal);try{const res=await fetch('/api/runs',{method:'POST',body});const data=await res.json();if(!res.ok)throw Error(data.detail||'Failed to start run');currentRunId=data.run_id;seenActivity=0;$('run-id').textContent='#'+data.run_id.slice(0,6);$('crumb').innerHTML='/ <b>run #'+data.run_id.slice(0,6)+'</b>';$('run-goal-echo').textContent=goal;$('page-new').classList.remove('visible');$('page-run').classList.add('visible');startPolling()}catch(error){$('new-error').textContent=error.message;show('new-error')}finally{$('start-btn').disabled=false}};
+function startPolling(){if(pollHandle)clearInterval(pollHandle);pollHandle=setInterval(fetchStatus,900);fetchStatus()}
+async function fetchStatus(){try{const res=await fetch(`/api/runs/${currentRunId}`),data=await res.json();if(!res.ok)throw Error(data.detail||'Could not load run');render(data);if(['finalized','failed','awaiting_clarification'].includes(data.status))clearInterval(pollHandle)}catch(error){$('run-error').textContent=error.message;show('run-error')}}
+function render(data){$('max-iterations').textContent=data.max_iterations;renderActivity(data);$('stat-iter').textContent=`${data.iteration} / ${data.max_iterations}`;$('stat-state').textContent=data.status.replaceAll('_',' ');$('live-label').textContent=data.status.replaceAll('_',' ');$('live-dot').classList.toggle('pulse',data.status==='running');const logs=data.iteration_logs||[];const last=logs.at(-1);$('stat-score').textContent=last?Number(last.composite_score).toFixed(3):'-';if(data.status==='awaiting_clarification'){$('clarify-question').textContent=data.clarification_question;show('clarify-card')}if(data.status==='failed'){$('run-error').textContent=data.error||'The run failed.';show('run-error')}if(data.status==='finalized'&&data.final_report){renderReport(data.final_report)}}
+$('clarify-btn').onclick=async()=>{const answer=$('clarify-answer').value.trim();if(!answer)return;const body=new FormData();body.append('answer',answer);await fetch(`/api/runs/${currentRunId}/clarify`,{method:'POST',body});hide('clarify-card');startPolling()};
+function renderReport(report){if(lastReport===report)return;lastReport=report;const metrics=report.metrics||{};$('stats').innerHTML=[['Model family',report.model_family],['Composite score',Number(report.composite_score).toFixed(3),true],['Weighted F1',metrics.f1_weighted!==undefined?Number(metrics.f1_weighted).toFixed(3):Object.values(metrics)[0]??'-'],['Iterations run',`${(report.run_history||[]).length} / ${$('max-iterations').textContent}`]].map(s=>`<div class="stat"><div class="stat-label">${escapeHtml(s[0])}</div><div class="stat-val${s[2]?' accent':''}">${escapeHtml(s[1])}</div></div>`).join('');$('history').innerHTML=(report.run_history||[]).map(h=>`<tr><td>${h.iteration}</td><td>${escapeHtml(h.weakest_block||'-')}</td><td>${Number(h.composite_score).toFixed(3)}</td><td><span class="decision-tag ${h.decision==='accept'?'accept':'refine'}">${escapeHtml(h.decision)}</span></td></tr>`).join('');const features=report.shap_summary?.top_features||[];if(features.length){const max=Math.max(...features.map(x=>Number(x.mean_abs_shap)||0),1);$('shap-list').innerHTML=features.map(x=>`<div class="shap-item"><div class="shap-name" title="${escapeHtml(x.feature)}">${escapeHtml(x.feature)}</div><div class="shap-bar-track"><div class="shap-bar-fill" style="width:${((Number(x.mean_abs_shap)||0)/max*100).toFixed(0)}%"></div></div><div class="shap-val">${Number(x.mean_abs_shap).toFixed(2)}</div></div>`).join('')}else show('no-shap');const assumptions=report.assumptions||[];if(assumptions.length){$('fallback-note').innerHTML='<b>Run notes:</b> '+assumptions.map(escapeHtml).join(' · ');show('fallback-note')}$('download-link').href=`/api/runs/${report.run_id}/model`;$('json-btn').onclick=()=>{const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${report.run_id}-report.json`;a.click();URL.revokeObjectURL(url)};show('results');setTimeout(()=>$('results').scrollIntoView({behavior:'smooth',block:'start'}),250)}
+$('back-btn').onclick=()=>{if(pollHandle)clearInterval(pollHandle);currentRunId=null;lastReport=null;seenActivity=0;$('feed').innerHTML='';$('results').classList.remove('shown');$('page-run').classList.remove('visible');$('page-new').classList.add('visible');$('crumb').innerHTML='/ <b>new run</b>'};
 </script>
 </body>
 </html>
