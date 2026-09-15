@@ -57,6 +57,7 @@ def is_categorical_column(series: pd.Series) -> bool:
         return True
     if pd.api.types.is_numeric_dtype(series):
         # low-cardinality numeric columns are treated as categorical-ish
+        # As we target both no. of unique values and their ratio w.r.t. size of the series
         nunique = series.nunique(dropna=True)
         return nunique <= 20 and nunique / max(len(series), 1) < 0.05
     return False
@@ -66,8 +67,12 @@ def extract_meta_features(
     df: pd.DataFrame, target_column: str | None = None
 ) -> DatasetMetaFeatures:
     n_rows, n_cols = df.shape
+    # df.isna() - df of same shape with boolean values (true - Null)
+    # df.isna().mean() - Column wise
+    # df.isna().mean().mean() - Overall avg.
     missing_pct = float(df.isna().mean().mean() * 100) if n_cols else 0.0
 
+    # It gives a quick numerical description of the dataset's structure.
     categorical_cols = [c for c in df.columns if is_categorical_column(df[c])]
     categorical_ratio = len(categorical_cols) / n_cols if n_cols else 0.0
 

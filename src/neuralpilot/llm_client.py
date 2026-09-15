@@ -13,7 +13,7 @@ import json
 import re
 from typing import Protocol, TypeVar
 
-from huggingface_hub import InferenceClient
+from huggingface_hub import InferenceClient # For communication
 from pydantic import BaseModel, ValidationError
 
 from .config import LLMConfig, LLM_CONFIG
@@ -74,7 +74,7 @@ class HFLLMClient:
         ]
 
         last_error: Exception | None = None
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries + 1): # 3 default
             response = self._client.chat.completions.create(
                 model=self.config.model,
                 messages=messages,
@@ -101,7 +101,7 @@ class HFLLMClient:
 
         raise LLMJSONError(f"Failed to get valid JSON after {max_retries + 1} attempts: {last_error}")
 
-
+# Type Hint, Initially None
 _default_client: HFLLMClient | None = None
 
 
