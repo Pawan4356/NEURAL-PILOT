@@ -1,6 +1,6 @@
 # Neural Pilot Implementation Spec
 
-**Status:** Approved plan, ready for implementation
+**Status:** Implemented baseline, kept as the technical reference for the current code
 **Scope:** This document defines exactly what to build. Anything not listed under the project scope is explicitly deferred — do not implement it, do not scaffold for it beyond the noted interface seams.
 
 ---
@@ -23,6 +23,7 @@ The LLM never writes or executes code. It only selects and parametrizes trusted,
 - Deterministic plan verification (rule-based, not LLM-judged)
 - Deterministic component fallback (category-based lookup, not similarity search)
 - One clarifying question max, only when target-column confidence is low
+- Minimal FastAPI web UI for upload, clarification, progress polling, final report, and model download
 
 **Explicitly deferred to V2+ (do not build now):**
 - Multi-strategy (A/B/C) parallel planning
@@ -70,7 +71,7 @@ Exactly four LLM agents. Use these names consistently everywhere (code, prompts,
 ## 4. Execution Layer (Deterministic, No LLM)
 
 ### 4.1 Plan Verification (runs before every execution)
-Hardcoded checks, all must pass or the plan is rejected and sent back to Planning Agent with the failure reason:
+Hardcoded checks, all must pass or the plan is rejected and sent back to Planning Agent with the failure reason. The orchestrator retries planning/verification up to three times before failing the run.
 - `target_column` exists in dataset
 - Target has ≥2 unique values (classification) or is numeric (regression)
 - Class imbalance ratio flagged (warn, not block) if >10:1
@@ -79,16 +80,24 @@ Hardcoded checks, all must pass or the plan is rejected and sent back to Plannin
 - Every component named in the plan exists in the Component Registry (§4.3); if not, trigger fallback
 
 ### 4.2 Execution Engine
-Runs preprocessing → feature engineering → training → hyperparameter tuning exactly as verified. Logs every step (inputs, outputs, timing, errors) to the experiment log. Wraps scikit-learn/XGBoost/CatBoost/Optuna/SHAP as callable modules — agents select and parametrize, engine executes.
+Runs preprocessing → feature engineering → hyperparameter tuning → final training → evaluation exactly as verified. Logs per-block diagnostics (inputs, outputs, timing, errors) into the run state/final report, then persists a summary to the experiment log. Wraps scikit-learn/XGBoost/CatBoost/Optuna/SHAP as callable modules — agents select and parametrize, engine executes.
 
 ### 4.3 Component Registry + Fallback
 Registry: components tagged by category (`encoder`, `scaler`, `model_family`, `tuner`).
 Fallback rule (deterministic decision tree per category, not similarity search):
 - `encoder`: unsupported → if categorical cardinality ≤ 10, use `OrdinalEncoder`; else `OneHotEncoder`
 - `scaler`: unsupported → default to `StandardScaler`
-- `model_family`: unsupported → default to `RandomForestClassifier`/`RandomForestRegressor` (safe general baseline)
-- `tuner`: unsupported → default to `Optuna` random-sampler with fixed trial budget
+- `model_family`: unsupported → default to registry name `RandomForest`, which builds `RandomForestClassifier` or `RandomForestRegressor` by task type
+- `tuner`: unsupported → default to registry name `OptunaRandom`, an Optuna random sampler with fixed trial budget
 Every fallback is logged as `{requested: X, used: Y, reason: "unsupported"}` — the run never fails on this basis.
+
+Implemented registry names:
+- `encoder`: `OneHotEncoder`, `OrdinalEncoder`
+- `scaler`: `MinMaxScaler`, `RobustScaler`, `StandardScaler`
+- `model_family`: `CatBoost`, `DecisionTree`, `GradientBoosting`, `LinearModel`, `RandomForest`, `XGBoost`
+- `tuner`: `NoTuning`, `OptunaRandom`, `OptunaTPE`
+
+Feature-engineering steps are handled by a small execution-engine registry, not the component fallback registry. Supported names are `PolynomialFeatures`, `SelectKBest`, and `PCA`; unknown feature-engineering steps are skipped with a diagnostic warning rather than failing the run.
 
 ### 4.4 Multi-Objective Validation
 ```
@@ -99,6 +108,7 @@ score = w_acc * accuracy_norm + w_lat * (1 - latency_norm) + w_interp * interp_n
 - `interp_norm`: lookup table by model class — `{linear: 1.0, tree: 1.0, random_forest: 0.6, gbm: 0.6, xgboost: 0.4, catboost: 0.4, deep: 0.1}`
 - Weights come from Requirement Understanding Agent output (§3.1)
 - If interpretability requested explicitly, generate SHAP summary regardless of score — SHAP generation is not gated by the score itself
+- Classification metrics are `accuracy` and weighted `f1`; regression metrics are `r2` and `rmse`.
 
 ### 4.5 Plateau Detection (deterministic)
 Plateau = TRUE if either:
@@ -113,6 +123,7 @@ When plateau = TRUE, force Decision Agent output to `stop`.
 - **Experiment repository:** SQLite (or JSON file, pick SQLite for query simplicity) storing per-run: dataset meta-feature vector, plan used, scores, weakest_block history, final decision.
 - **Retrieval method:** nearest-neighbor (cosine similarity) over a small hand-built meta-feature vector: `[n_rows, n_cols, n_classes, missing_pct, categorical_ratio]`. No embeddings, no vector DB library.
 - **Interface seam for V2:** wrap retrieval behind a `retrieve_similar_experiments(meta_features, k)` function so swapping in pgvector/embeddings later doesn't change any agent-facing contract.
+- **Artifacts:** uploaded datasets are stored in `data/`, the SQLite log is `runs/experiments.sqlite3`, and accepted/stopped runs save a final scikit-learn pipeline at `runs/models/<run_id>.joblib`.
 
 ---
 
@@ -124,15 +135,15 @@ When plateau = TRUE, force Decision Agent output to `stop`.
    → if target confidence low: ask ONE clarifying question, else proceed
 3. Planning Agent → plan (using top-k similar past experiments)
 4. Plan Verification (deterministic) → pass/fail
-   → fail: back to step 3 with failure reason
-5. Execution Engine runs plan → results + per-block diagnostics
+   → fail: back to step 3 with failure reason, up to 3 verification attempts
+5. Execution Engine runs plan → metrics + per-block diagnostics + model artifact candidate
 6. Multi-Objective Validation → composite score
 7. Reflection Agent → weakest_block
 8. Decision Agent → accept | refine | replan | stop
    (plateau/max-iteration guardrails can force "stop" regardless of agent output)
 9. If refine/replan: loop to step 3 with new context
    If accept/stop: finalize
-10. Final output: model, metrics, SHAP explanation (if applicable), assumptions made, run history summary
+10. Final output: saved model, metrics, SHAP explanation (if applicable), assumptions made, run history summary
 ```
 
 ---
