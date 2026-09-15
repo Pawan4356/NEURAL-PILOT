@@ -1,4 +1,4 @@
-from agentic_automl.plateau import detect_plateau
+from neuralpilot.plateau import detect_plateau
 
 
 def test_no_plateau_with_insufficient_history():

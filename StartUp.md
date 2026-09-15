@@ -1,4 +1,4 @@
-# Agentic AutoML Startup
+# Neural Pilot Startup
 
 ## Install
 
@@ -29,7 +29,7 @@ export HF_PROVIDER="auto"                              # default
 ## Start
 
 ```bash
-uv run agentic-automl
+uv run neuralpilot
 ```
 
 Open http://127.0.0.1:8000, upload a CSV, and describe what you want to predict in plain
@@ -44,10 +44,10 @@ trained model.
 | `HF_TOKEN` | None | Hugging Face access token; required for agent calls |
 | `HF_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Hugging Face model |
 | `HF_PROVIDER` | `auto` | Hugging Face inference provider |
-| `AUTOML_HOST` | `127.0.0.1` | Web server host |
-| `AUTOML_PORT` | `8000` | Web server port |
-| `AUTOML_MAX_ITERATIONS` | `5` | Maximum refinement iterations |
-| `AUTOML_LOG_LEVEL` | `INFO` | Logging level, such as `INFO` or `DEBUG` |
+| `NEURALPILOT_HOST` | `127.0.0.1` | Web server host |
+| `NEURALPILOT_PORT` | `8000` | Web server port |
+| `NEURALPILOT_MAX_ITERATIONS` | `5` | Maximum refinement iterations |
+| `NEURALPILOT_LOG_LEVEL` | `INFO` | Logging level, such as `INFO` or `DEBUG` |
 
 ## Progress Logging
 
@@ -55,7 +55,7 @@ The web page shows the current task while a run is active. The terminal logs eac
 iteration, verification retry, and hyperparameter-tuning trial. For detailed logs:
 
 ```bash
-AUTOML_LOG_LEVEL=DEBUG uv run agentic-automl
+NEURALPILOT_LOG_LEVEL=DEBUG uv run neuralpilot
 ```
 
 During tuning, progress appears as:
@@ -76,7 +76,7 @@ If port `8000` is already in use, stop the existing server with `Ctrl+C`, or sta
 port:
 
 ```bash
-AUTOML_PORT=8001 uv run agentic-automl
+NEURALPILOT_PORT=8001 uv run neuralpilot
 ```
 
 Then open http://127.0.0.1:8001.
@@ -84,7 +84,7 @@ Then open http://127.0.0.1:8001.
 For a quick test run with one orchestration iteration:
 
 ```bash
-AUTOML_MAX_ITERATIONS=1 AUTOML_LOG_LEVEL=INFO uv run agentic-automl
+NEURALPILOT_MAX_ITERATIONS=1 NEURALPILOT_LOG_LEVEL=INFO uv run neuralpilot
 ```
 
 ## Tests

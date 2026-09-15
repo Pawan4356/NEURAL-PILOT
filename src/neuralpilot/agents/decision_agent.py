@@ -17,7 +17,7 @@ from ..llm_client import LLMClient, get_default_client
 from ..plateau import detect_plateau
 from ..schemas import DecisionOutput
 
-SYSTEM_PROMPT = """You are the Decision Agent in an agentic AutoML system.
+SYSTEM_PROMPT = """You are the Decision Agent in the Neural Pilot system.
 You never write or execute code. You read the run's score history and the current \
 weakest block, then choose exactly one of: "accept", "refine", "replan", "stop".
 

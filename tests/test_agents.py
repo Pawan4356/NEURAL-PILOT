@@ -1,15 +1,15 @@
 import pytest
 
-from agentic_automl.agents.decision_agent import decide
-from agentic_automl.agents.planning_agent import generate_plan
-from agentic_automl.agents.reflection_agent import reflect
-from agentic_automl.agents.requirement_agent import (
+from neuralpilot.agents.decision_agent import decide
+from neuralpilot.agents.planning_agent import generate_plan
+from neuralpilot.agents.reflection_agent import reflect
+from neuralpilot.agents.requirement_agent import (
     apply_clarification_answer,
     needs_clarification,
     understand_requirement,
 )
-from agentic_automl.meta_features import extract_meta_features
-from agentic_automl.schemas import (
+from neuralpilot.meta_features import extract_meta_features
+from neuralpilot.schemas import (
     BlockDiagnostics,
     ConstraintWeights,
     DecisionOutput,

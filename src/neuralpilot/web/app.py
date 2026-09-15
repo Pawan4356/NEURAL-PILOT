@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import config
 from ..orchestrator import RunState, apply_clarification, create_run, run_to_completion
 
-app = FastAPI(title="Agentic AutoML")
+app = FastAPI(title="Neural Pilot")
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

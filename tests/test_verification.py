@@ -2,14 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agentic_automl.schemas import (
+from neuralpilot.schemas import (
     ConstraintWeights,
     PlanSpec,
     PreprocessingStep,
     RequirementSpec,
     TuningStrategy,
 )
-from agentic_automl.verification import verify_plan
+from neuralpilot.verification import verify_plan
 
 
 def _requirement(problem_type="classification", target="y"):

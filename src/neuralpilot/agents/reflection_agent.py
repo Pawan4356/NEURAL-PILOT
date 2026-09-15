@@ -11,7 +11,7 @@ from __future__ import annotations
 from ..llm_client import LLMClient, get_default_client
 from ..schemas import ReflectionOutput, ValidationReport
 
-SYSTEM_PROMPT = """You are the Reflection Agent in an agentic AutoML system.
+SYSTEM_PROMPT = """You are the Reflection Agent in the Neural Pilot system.
 You never write or execute code. You read a validation report (composite score, its \
 accuracy/latency/interpretability components, and per-block execution diagnostics) and \
 identify the single weakest block responsible for holding back the score.

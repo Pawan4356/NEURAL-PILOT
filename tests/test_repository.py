@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from agentic_automl.meta_features import extract_meta_features
-from agentic_automl.repository import ExperimentRecord, ExperimentRepository
+from neuralpilot.meta_features import extract_meta_features
+from neuralpilot.repository import ExperimentRecord, ExperimentRepository
 
 
 @pytest.fixture

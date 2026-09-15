@@ -1,7 +1,7 @@
-# Agentic AutoML — V1 Implementation Spec (for Claude CLI)
+# Neural Pilot Implementation Spec
 
 **Status:** Approved plan, ready for implementation
-**Scope:** This document defines exactly what to build in V1. Anything not listed under "V1 Scope" is explicitly deferred — do not implement it, do not scaffold for it beyond the noted interface seams.
+**Scope:** This document defines exactly what to build. Anything not listed under the project scope is explicitly deferred — do not implement it, do not scaffold for it beyond the noted interface seams.
 
 ---
 
@@ -13,9 +13,9 @@ The LLM never writes or executes code. It only selects and parametrizes trusted,
 
 ---
 
-## 2. V1 Scope Boundary
+## 2. Scope Boundary
 
-**In scope for V1:**
+**In scope:**
 - Single primary strategy per planning pass (no parallel A/B/C strategy generation)
 - Weighted-sum multi-objective scoring (accuracy / latency / interpretability)
 - Linear closed loop: plan → verify → execute → validate → reflect → decide → (refine/replan/stop)
@@ -108,7 +108,7 @@ When plateau = TRUE, force Decision Agent output to `stop`.
 
 ---
 
-## 5. Knowledge Layer (V1-scoped)
+## 5. Knowledge Layer
 
 - **Experiment repository:** SQLite (or JSON file, pick SQLite for query simplicity) storing per-run: dataset meta-feature vector, plan used, scores, weakest_block history, final decision.
 - **Retrieval method:** nearest-neighbor (cosine similarity) over a small hand-built meta-feature vector: `[n_rows, n_cols, n_classes, missing_pct, categorical_ratio]`. No embeddings, no vector DB library.
@@ -116,7 +116,7 @@ When plateau = TRUE, force Decision Agent output to `stop`.
 
 ---
 
-## 6. End-to-End Loop (V1)
+## 6. End-to-End Loop
 
 ```
 1. User uploads dataset + plain-English goal
@@ -137,7 +137,7 @@ When plateau = TRUE, force Decision Agent output to `stop`.
 
 ---
 
-## 7. User-Facing Clarification (minimal, V1)
+## 7. User-Facing Clarification
 
 Only one interaction point beyond initial upload: a single clarifying question if target-column confidence is low. No other mid-run prompts. All other uncertainty (constraint weights, component fallback) is resolved silently with defaults and surfaced in the final report as "Assumptions Made."
 

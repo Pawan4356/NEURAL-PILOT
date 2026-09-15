@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agentic_automl.schemas import (
+from neuralpilot.schemas import (
     ConstraintWeights,
     FeatureEngineeringStep,
     PlanSpec,
@@ -10,7 +10,7 @@ from agentic_automl.schemas import (
     RequirementSpec,
     TuningStrategy,
 )
-from agentic_automl.execution import run_pipeline
+from neuralpilot.execution import run_pipeline
 
 
 def _clf_df(n=150, seed=0):

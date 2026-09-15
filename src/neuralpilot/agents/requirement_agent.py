@@ -19,7 +19,7 @@ from ..llm_client import LLMClient, get_default_client
 from ..meta_features import DatasetMetaFeatures
 from ..schemas import ConstraintWeights, RequirementSpec
 
-SYSTEM_PROMPT = """You are the Requirement Understanding Agent in an agentic AutoML system.
+SYSTEM_PROMPT = """You are the Requirement Understanding Agent in the Neural Pilot system.
 You never write or execute code. You only read the user's plain-English goal and the \
 dataset's meta-features (column names, dtypes, cardinality — never raw rows) and produce \
 a structured specification.

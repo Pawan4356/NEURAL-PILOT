@@ -1,4 +1,4 @@
-from agentic_automl.registry import component_exists, get_interp_class, resolve_component
+from neuralpilot.registry import component_exists, get_interp_class, resolve_component
 
 
 def test_known_component_resolves_without_fallback():

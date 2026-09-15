@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agentic_automl import llm_client
-from agentic_automl.orchestrator import apply_clarification, create_run, run_to_completion
-from agentic_automl.repository import ExperimentRepository
-from agentic_automl.schemas import (
+from neuralpilot import llm_client
+from neuralpilot.orchestrator import apply_clarification, create_run, run_to_completion
+from neuralpilot.repository import ExperimentRepository
+from neuralpilot.schemas import (
     ConstraintWeights,
     DecisionOutput,
     PlanSpec,
@@ -71,9 +71,9 @@ def reset_default_client():
 
 def test_full_loop_finalizes_after_accept(tmp_path, repo, monkeypatch):
     monkeypatch.setattr(
-        "agentic_automl.orchestrator.MODELS_DIR", tmp_path / "models", raising=False
+        "neuralpilot.orchestrator.MODELS_DIR", tmp_path / "models", raising=False
     )
-    import agentic_automl.orchestrator as orch
+    import neuralpilot.orchestrator as orch
 
     orch.MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -122,7 +122,7 @@ def test_full_loop_finalizes_after_accept(tmp_path, repo, monkeypatch):
 
 
 def test_clarification_pauses_then_resumes(tmp_path, repo, monkeypatch):
-    import agentic_automl.orchestrator as orch
+    import neuralpilot.orchestrator as orch
 
     monkeypatch.setattr(orch, "MODELS_DIR", tmp_path / "models", raising=False)
     orch.MODELS_DIR.mkdir(parents=True, exist_ok=True)

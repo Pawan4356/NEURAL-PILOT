@@ -1,4 +1,4 @@
-"""Central configuration for Agentic AutoML V1.
+"""Central configuration for Neural Pilot.
 
 All tunables that the spec treats as fixed defaults (§3 weight defaults,
 plateau thresholds, iteration caps, etc.) live here so every module reads
@@ -45,7 +45,7 @@ PLATEAU_SCORE_DELTA_PCT = 2.0
 PLATEAU_LOOKBACK_ITERS = 2
 
 # --- Orchestration loop (§6) ---
-MAX_ITERATIONS = int(os.environ.get("AUTOML_MAX_ITERATIONS", "5"))
+MAX_ITERATIONS = int(os.environ.get("NEURALPILOT_MAX_ITERATIONS", "5"))
 
 # --- Knowledge layer (§5) ---
 RETRIEVAL_TOP_K = 3

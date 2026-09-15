@@ -1,7 +1,7 @@
 import pytest
 
-from agentic_automl.schemas import ConstraintWeights
-from agentic_automl.scoring import compute_validation, should_generate_shap
+from neuralpilot.schemas import ConstraintWeights
+from neuralpilot.scoring import compute_validation, should_generate_shap
 
 
 def test_classification_composite_score():

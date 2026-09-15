@@ -17,7 +17,7 @@ from ..registry import list_components
 from ..repository import ExperimentRecord
 from ..schemas import PlanSpec, ReflectionOutput, RequirementSpec
 
-SYSTEM_PROMPT = f"""You are the Planning Agent in an agentic AutoML system.
+SYSTEM_PROMPT = f"""You are the Planning Agent in the Neural Pilot system.
 You never write or execute code. You only select and parametrize trusted, pre-built \
 components by name from a fixed registry. The Execution Engine will run whatever you \
 choose deterministically.

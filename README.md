@@ -1,6 +1,6 @@
-# Agentic AutoML — V1
+# Neural Pilot
 
-An implementation of the [V1 spec](./AgenticAutoML-V1-Spec.md): four LLM agents that *think*
+An implementation of the [Neural Pilot spec](./NeuralPilot-Spec.md): four LLM agents that *think*
 (select and parametrize trusted components) and a deterministic Execution Engine that *works*
 (runs scikit-learn/XGBoost/CatBoost/Optuna/SHAP). The LLM never writes or executes code.
 
@@ -29,7 +29,7 @@ export HF_PROVIDER="auto"                              # default
 
 ## Start the application
 
-See [startup.md](startup.md) for environment configuration, launch instructions, progress
+See [startup.md](StartUp.md) for environment configuration, launch instructions, progress
 logging, and troubleshooting.
 
 ## Tests
@@ -45,7 +45,7 @@ with a scripted fake LLM client (no network/API key needed for the test suite).
 ## Project layout
 
 ```
-src/agentic_automl/
+src/neuralpilot/
   config.py         tunables (default weights, thresholds, plateau/iteration limits)
   meta_features.py  dataset meta-feature extraction (shared by agents + retrieval)
   registry.py        §4.3 Component Registry + deterministic fallback
@@ -61,8 +61,8 @@ src/agentic_automl/
   web/                     §7/§9 minimal web UI
 ```
 
-## V1 scope
+## Scope
 
-See [§2 of the spec](./AgenticAutoML-V1-Spec.md#2-v1-scope-boundary) for what's in vs.
+See [§2 of the spec](./NeuralPilot-Spec.md#2-scope-boundary) for what's in vs.
 explicitly deferred (multi-strategy A/B/C planning, real vector DB retrieval, web search,
 cross-iteration ensembling, Pareto-frontier optimization, RAG over papers/docs).
