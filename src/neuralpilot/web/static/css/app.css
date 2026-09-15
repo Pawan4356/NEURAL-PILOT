@@ -69,8 +69,18 @@ body {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  width: 128px;
+  height: 37px;
   font-size: 15px;
   font-weight: 600;
+}
+
+.brand img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .brand span {

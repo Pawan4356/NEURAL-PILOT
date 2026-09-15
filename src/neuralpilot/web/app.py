@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
@@ -23,6 +23,7 @@ from ..orchestrator import RunState, apply_clarification, create_run, run_to_com
 app = FastAPI(title="Neural Pilot")
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_LOGO_PATH = Path(__file__).resolve().parents[3] / "media" / "Logo.svg"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 RUNS: dict[str, RunState] = {}
@@ -67,6 +68,18 @@ def _serialize(state: RunState) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse((_STATIC_DIR / "index.html").read_text())
+
+
+@app.get("/logo.svg")
+def logo(theme: str = None) -> Response:
+    content = _LOGO_PATH.read_text()
+    if theme == "dark":
+        content = content.replace("#121726", "#FFFFFF")
+    elif theme == "light":
+        # Force light mode by replacing the dark mode white color with navy blue
+        # so the media query doesn't override it if the OS is in dark mode
+        content = content.replace("fill: #FFFFFF", "fill: #121726")
+    return Response(content, media_type="image/svg+xml")
 
 
 @app.post("/api/runs")
