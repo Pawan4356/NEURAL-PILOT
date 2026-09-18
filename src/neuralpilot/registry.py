@@ -1,5 +1,9 @@
 """Component Registry + deterministic fallback (§4.3).
 
+_XYZ -> Only for internal use, don't call it outside
+__XYZ -> It helps prevent accidental access/overriding by subclasses (Python Name Mangling)
+__XYZ__ -> Dunder/Special methods
+
 Pure Python, no LLM involved. This is the foundation every other layer
 calls: the Planning Agent names components by string, the Execution
 Engine resolves those names to real objects through this registry, and
@@ -40,7 +44,7 @@ Category = Literal["encoder", "scaler", "model_family", "tuner"]
 class ComponentSpec:
     name: str
     category: Category
-    build: Callable[..., Any]
+    build: Callable[..., Any] # A callable that can accept any arguments and can return any type of value.
     # Only meaningful for category == "model_family"; keys of
     # config.INTERPRETABILITY_TABLE (§4.4).
     interp_class: str | None = None
@@ -67,6 +71,7 @@ class FallbackRecord:
 # Encoders
 # ---------------------------------------------------------------------------
 _ENCODERS: dict[str, ComponentSpec] = {
+    # Categories with a clear, logical rank
     "OrdinalEncoder": ComponentSpec(
         "OrdinalEncoder",
         "encoder",
@@ -74,6 +79,7 @@ _ENCODERS: dict[str, ComponentSpec] = {
             handle_unknown="use_encoded_value", unknown_value=-1, **kw
         ),
     ),
+    # Categories with no inherent order
     "OneHotEncoder": ComponentSpec(
         "OneHotEncoder",
         "encoder",
@@ -85,8 +91,11 @@ _ENCODERS: dict[str, ComponentSpec] = {
 # Scalers
 # ---------------------------------------------------------------------------
 _SCALERS: dict[str, ComponentSpec] = {
+    # Removes the mean and scales data to have a standard deviation of 1 (mean = 0, variance = 1).
     "StandardScaler": ComponentSpec("StandardScaler", "scaler", lambda **kw: StandardScaler(**kw)),
+    # Rescales every feature to a fixed range, usually between 0 and 1 (or -1 to 1 if negative values exist).
     "MinMaxScaler": ComponentSpec("MinMaxScaler", "scaler", lambda **kw: MinMaxScaler(**kw)),
+    #  Uses the median and the Interquartile Range (IQR) instead of the mean and standard deviation.
     "RobustScaler": ComponentSpec("RobustScaler", "scaler", lambda **kw: RobustScaler(**kw)),
 }
 
@@ -102,6 +111,9 @@ def _linear_model(problem_type: ProblemType, **kw):
         return LogisticRegression(max_iter=1000, **kw)
     if kw:
         kw.setdefault("random_state", 42)
+        # Regression with Regularization (L2)
+        # Solves the instability and overfitting of standard linear regression 
+        # when independent variables are highly collinear.
         return Ridge(**kw)
     return LinearRegression()  # closed-form, already deterministic
 
@@ -162,9 +174,13 @@ _MODEL_FAMILIES: dict[str, ComponentSpec] = {
 # tuning step, not a live object (Optuna studies are created per-run).
 # ---------------------------------------------------------------------------
 _TUNERS: dict[str, ComponentSpec] = {
+    # TPE stands for Tree-structured Parzen Estimator
+    # Instead of treating every trial independently, TPE uses information from previous trials to decide 
+    # which hyperparameter combinations are worth trying next.
     "OptunaTPE": ComponentSpec(
         "OptunaTPE", "tuner", lambda **kw: {"sampler": "tpe", "n_trials": kw.get("n_trials", 25)}
     ),
+    # Tuning using random sampling
     "OptunaRandom": ComponentSpec(
         "OptunaRandom",
         "tuner",
