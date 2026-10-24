@@ -22,6 +22,92 @@
 
 ---
 
+## Implementation Progress (living section — read this first)
+
+### Rules for every session that continues this roadmap
+1. **Read this section before starting work.** It says which phases are done, where the code is, and what was deliberately done differently from the plan below.
+2. **When a phase is finished, update this section in the same session**: tick the phase in the status table, add a "Phase N — done" entry (what was built, tests added, verification results, deviations, known limitations), tick the matching items in Deliverable 12, and update "Next up".
+3. **Keep the code modular and human-readable:** one responsibility per module, small named functions, docstrings that explain *why*, comments and naming that match the surrounding code, no clever one-liners. Someone new to the project should be able to follow a run by reading `orchestrator.py` → `engine/runner.py` → the engine components.
+4. Run tests with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q -p no:warnings` (ROS plugins break plain `pytest` on this machine). A phase is not done until the full suite passes.
+5. Where a phase's plan below turns out to be wrong or incomplete, follow the better design, then record the deviation and the reason here.
+
+### Status
+
+| Phase | Status | Date |
+|---|---|---|
+| 0 — Correctness safety net | ✅ Done (uncommitted at time of writing) | 2026-10-24 |
+| 1 — Evaluation protocol + engine package split | ✅ Done (uncommitted at time of writing) | 2026-10-24 |
+| 2 — LangChain LLM layer + LangSmith | ⬜ Not started | |
+| 3 — LangGraph orchestration | ⬜ Not started | |
+| 4 — Registry v2, candidates, diversity | ⬜ Not started | |
+| 5 — Constraint validator + ValidationReport v2 | ⬜ Not started | |
+| 6 — MLflow tracking | ⬜ Not started | |
+| 7 — Experiment memory v2 | ⬜ Not started | |
+| 8 — Documentation RAG | ⬜ Not started | |
+| 9 — Reflection v2 + deterministic routing | ⬜ Not started | |
+| 10 — External research | ⬜ Not started | |
+| 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
+
+**Next up:** Phase 2 (LangChain + LangSmith, Track B) and Phase 4 (registry v2, Track A) can start in parallel. Phase 3 merges after Phase 2. Before or alongside Phase 11, surface the new report fields in the UI (see Phase 1 limitations).
+
+### Phase 0 + 1 — done (2026-10-24)
+
+**Test status:** 126 tests pass (the original 56, some updated where the contract intentionally changed, plus 70 new).
+
+**Acceptance probe (real 440k-row churn file, the audit's old plan: GradientBoosting + SelectKBest + OptunaTPE(50), no LLM):**
+
+| Check | Result |
+|---|---|
+| `CustomerID` | Excluded as an identifier |
+| HPO | Stopped at the 300 s timeout after 14 of 50 trials; tuned on a 50k-row sample |
+| CV f1_weighted (training split) | 0.969 |
+| Holdout f1_weighted | 0.968, scored once |
+| Latency | 18.8 ms per 1k rows |
+| Total time | 457 s, within the 900 s run budget (audit estimate for this plan was ~76 min per iteration) |
+
+**Where the code lives**
+- `src/neuralpilot/engine/` — `loader`, `splits`, `preprocessing`, `feature_engineering`, `model_factory`, `hpo`, `training`, `evaluation`, `explainability`, `tracking` (no-op `Tracker` seam for Phase 6), and `runner` (`prepare_dataset` → `run_attempt` → `holdout_evaluate`, plus `plan_signature`).
+- `src/neuralpilot/execution.py` — `run_pipeline()` kept as a thin compatibility wrapper over the engine.
+- `src/neuralpilot/profiling.py` — column roles and leakage scan; `derive_problem_type`.
+- `src/neuralpilot/provenance.py` — git SHA (+dirty flag) and library versions.
+- `src/neuralpilot/orchestrator.py` — `BestAttempt`, `AttemptSummary` history, `_obtain_plan` (verify → dedupe → deterministic fallback), budget/cancel guardrails, `_finalize` (single holdout), `_persist_failure`.
+- `src/neuralpilot/repository.py` — `PRAGMA user_version` migrations, new columns, `SimilarExperiment(record, similarity)`.
+- Tests: `tests/test_loader.py`, `tests/test_profiling.py`, `tests/test_orchestrator_loop.py`, `tests/test_web.py`, `tests/engine/test_engine.py`, `tests/engine/test_splits.py`, fixtures in `tests/fixtures/`.
+
+**Phase 0 (G1–G11)**
+- **Loading (G5):** `engine/loader.py` detects `;`, tab and `|` delimiters, falls back through utf-8, utf-8-sig, cp1252 and latin-1, converts `"1,000"`-style text to numbers, and rejects junk headers, single-column, tiny and oversized files with a message that says how to fix the file.
+- **Leakage (G2):** `profiling.py` labels each column as id, constant, datetime, text, categorical or numeric, and flags columns that predict the target almost perfectly on their own (single-feature depth-3 tree, CV, on training rows only). ID, constant, datetime and text columns are excluded and listed in the report. Flagged columns are excluded too, unless `NEURALPILOT_LEAKAGE_ACTION=warn`.
+- **One metric (G8):** a single primary metric drives tuning, selection and the report: `f1_weighted` by default, `f1_macro` with balanced class weights when the smallest class is under 10%, `r2` for regression. A user-requested metric is honoured when valid.
+- **Latency (G6):** measured as the median of 3 predictions on a fixed 1,000-row sample, in ms per 1k rows, normalised against a fixed reference (`LATENCY_REFERENCE_MS_PER_1K`). The same attempt gets the same score in any iteration.
+- **Budgets (G9):** Optuna trials capped (`HPO_MAX_TRIALS`), Optuna timeout, per-run wall-clock budget (`RUN_BUDGET_S`), HPO/CV on a sample of large data (`HPO_MAX_ROWS`), bounded feature-engineering and preprocessing params. Clamped or dropped values are recorded as assumptions.
+- **Best attempt and single holdout (G1, G7):** attempts are compared on CV over the training split (primary-metric mean; within one standard error, the composite score breaks the tie). The best one, not the last, is saved and scored once on the holdout.
+- **No repeated plans (G3):** the planner sees the plans already tried with their CV scores, and is told when a replan should change strategy. If it repeats a plan it is asked once more, then the next untried registry model is used instead.
+- **Retrieval (G4):** past runs are compared on a scaled meta-feature vector (`meta_features.memory_vector`), filtered to finalized runs of the same task type, and dropped below `MIN_SIMILARITY`. The planner sees the similarity score.
+- **Persistence (G10):** failed runs are saved, with decision rationale, whether a guardrail forced the decision, iteration logs, metrics (CV and holdout), model path, code and library versions, and a dataset fingerprint. Existing databases upgrade in place.
+- **Clarification (G11):** the answer is matched to a column ignoring case; otherwise the endpoint returns 400 with the column list and the run keeps waiting. The task type is re-derived from the chosen column. An LLM-proposed target that is not a column also triggers clarification.
+
+**Phase 1**
+- `execution.py` split into the `engine/` package above, plus `splits.py` (stratified, random, group or time-ordered; one holdout per run, CV folds drawn from the training part only).
+- New schemas: `SplitSpec`, `MetricSummary`, `ResourceUsage`, `AttemptResult`, `AttemptSummary`. Results include per-fold CV summaries and resource usage (train/HPO seconds, peak RSS, latency, model size).
+- Optuna uses fold-by-fold `MedianPruner`, catches failed trials, and stops on a cancellation event. `POST /api/runs/{id}/cancel` stops after the current trial and keeps the best attempt.
+- Golden/determinism tests, holdout-isolation spy tests, time-split and group-split tests.
+
+**Deviations from the plan below (deliberate)**
+- **Plan signature** also includes the tuner, trial count and FE/preprocessing params. Otherwise a refine that only changes hyperparameters would be rejected as a duplicate.
+- **Regression leakage** uses max(depth-3 tree CV R², Spearman ρ²). A depth-3 tree alone cannot reach R² ≥ 0.98 on a continuous target, so it would miss a copy of the target.
+- **Task re-derivation:** an integer target with under 5% unique values counts as classification only if it also has 50 or fewer distinct values. The plan's rule alone would turn large regression datasets into classification.
+- **Datetime and free-text columns** are excluded as well as id and constant columns, because one-hot encoding them is harmful. Unique single-token string columns (emails, codes) count as identifiers.
+- **SHAP** runs once at finalisation on training rows (not per attempt), so explanation never touches the holdout.
+
+**Known limitations / open items carried forward**
+- The Optuna timeout is only checked between trials, so one slow trial can overrun it (churn: 322 s against a 300 s limit).
+- The student and winequality CSVs are no longer in `data/`; `;` and cp1252 handling is tested with synthetic fixtures in `tests/fixtures/`. Re-run the six real datasets when available.
+- No real LLM calls were made and the web UI was not driven in a browser. The UI still reads the old report fields; the new ones (`cv_metrics`, `holdout_metrics`, `best_iteration`, `best_hyperparameters`, `data.excluded_columns`, `reproducibility`) are not displayed yet.
+- The model artifact is still a bare pipeline without the label decoder (G20, planned for later).
+- Existing tests changed on purpose: scoring tests use absolute latency, retrieval returns `(record, similarity)`, and the GPU test patches `engine.model_factory.gpu_is_available`.
+
+---
+
 ## Deliverable 1 — Executive Assessment
 
 ### What already works
@@ -1138,21 +1224,21 @@ data/                        uploads (retention policy: delete after N days, con
 ## Deliverable 12 — Final Prioritized Checklist
 
 **Must be done first (sequential, P0, Phase 0):**
-1. [ ] Robust loader (`;`, encodings, numeric coercion, header check) + tests.
-2. [ ] Column roles + ID drop + leakage scan + tests (churn `CustomerID` regression test).
-3. [ ] Primary metric aligned across HPO, selection and report.
-4. [ ] Absolute latency; remove the rolling-max dependency.
-5. [ ] Budgets: `n_trials` cap, Optuna timeout, HPO subsampling, FE param bounds.
-6. [ ] Best-so-far finalization; CV-based selection; single holdout evaluation.
-7. [ ] Attempt history in the planner prompt + signature dedupe + deterministic next-candidate fallback.
-8. [ ] Retrieval: scaled features, task filter, threshold, similarity passed to the planner.
-9. [ ] Persist failed runs, decision rationale, `forced`, iteration logs, versions.
-10. [ ] Clarification validation + `problem_type` re-derivation.
+1. [x] Robust loader (`;`, encodings, numeric coercion, header check) + tests.
+2. [x] Column roles + ID drop + leakage scan + tests (churn `CustomerID` regression test).
+3. [x] Primary metric aligned across HPO, selection and report.
+4. [x] Absolute latency; remove the rolling-max dependency.
+5. [x] Budgets: `n_trials` cap, Optuna timeout, HPO subsampling, FE param bounds.
+6. [x] Best-so-far finalization; CV-based selection; single holdout evaluation.
+7. [x] Attempt history in the planner prompt + signature dedupe + deterministic next-candidate fallback.
+8. [x] Retrieval: scaled features, task filter, threshold, similarity passed to the planner.
+9. [x] Persist failed runs, decision rationale, `forced`, iteration logs, versions.
+10. [x] Clarification validation + `problem_type` re-derivation.
 
 **Validate before moving on:** the Phase 0 acceptance criteria. Then re-run the six real datasets and check that results no longer include leakage and that failures are persisted.
 
 **Next (P1), partially parallelisable:**
-- Track A: Phase 1 (engine split + evaluation protocol) → Phase 4 (registry v2 + candidates) → Phase 5 (validator).
+- Track A: Phase 1 (engine split + evaluation protocol) ✅ done 2026-10-24 → Phase 4 (registry v2 + candidates) → Phase 5 (validator).
 - Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) → Phase 3 (LangGraph port; merge after Phase 1 lands).
 - Phase 6 (MLflow) after Phases 1 and 4.
 

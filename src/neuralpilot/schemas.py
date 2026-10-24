@@ -12,6 +12,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 ProblemType = Literal["classification", "regression"]
+PrimaryMetric = Literal[
+    "accuracy", "balanced_accuracy", "f1_weighted", "f1_macro", "roc_auc", "r2", "rmse", "mae"
+]
+SplitStrategy = Literal["stratified", "random", "group", "time"]
 WeakestBlock = Literal["preprocessing", "feature_engineering", "model_family", "hyperparameters"]
 Decision = Literal["accept", "refine", "replan", "stop"]
 
@@ -41,6 +45,13 @@ class RequirementSpec(BaseModel):
     constraint_weights: ConstraintWeights
     weight_confidence: float = Field(ge=0.0, le=1.0)
     assumptions: list[str] = Field(default_factory=list)
+    # Optional; when absent or invalid for the task, the engine picks a
+    # deterministic default (see engine.evaluation.resolve_primary_metric).
+    primary_metric: PrimaryMetric | None = None
+    # Only set when the user explicitly asks for a time-ordered or grouped
+    # evaluation; validated against the dataset's columns before use.
+    time_column: str | None = None
+    group_column: str | None = None
 
 
 class PreprocessingStep(BaseModel):
@@ -58,7 +69,9 @@ class FeatureEngineeringStep(BaseModel):
 
 class TuningStrategy(BaseModel):
     component: str = "OptunaRandom"
-    n_trials: int = 25
+    # Upper bound (config.HPO_MAX_TRIALS) is enforced by clamping in the
+    # engine and recorded as a plan adjustment, not rejected here.
+    n_trials: int = Field(25, ge=0)
     rationale: str = ""
 
 
@@ -87,12 +100,76 @@ class BlockDiagnostics(BaseModel):
     error: str | None = None
 
 
+class SplitSpec(BaseModel):
+    """How a run's data is divided. The holdout is fixed for the whole run;
+    CV folds are drawn from the training part only."""
+
+    strategy: SplitStrategy
+    test_size: float = 0.2
+    n_folds: int = 3
+    seed: int = 42
+    group_column: str | None = None
+    time_column: str | None = None
+    hpo_max_rows: int | None = None
+
+
+class MetricSummary(BaseModel):
+    mean: float
+    std: float
+    folds: list[float]
+
+
+class ResourceUsage(BaseModel):
+    train_s: float
+    hpo_s: float
+    peak_rss_mb: float | None = None
+    latency_ms_per_1k: float
+    model_bytes: int | None = None
+
+
+class AttemptResult(BaseModel):
+    """Measured outcome of one plan, computed from the training split only."""
+
+    model_family: str  # resolved registry name actually executed
+    primary_metric: str
+    cv: dict[str, MetricSummary]
+    best_params: dict = Field(default_factory=dict)
+    n_trials_completed: int = 0
+    hpo_stopped_reason: str | None = None
+    hpo_rows: int | None = None  # rows used for HPO/CV after subsampling
+    class_weight: str | None = None
+    split: SplitSpec
+    resources: ResourceUsage
+
+    @property
+    def cv_score(self) -> float:
+        return self.cv[self.primary_metric].mean
+
+
 class ExecutionResult(BaseModel):
     metrics: dict[str, float]
     latency_seconds: float
     diagnostics: list[BlockDiagnostics]
     shap_summary: dict | None = None
     fallbacks: list[dict] = Field(default_factory=list)
+    attempt: AttemptResult | None = None
+    plan_adjustments: list[str] = Field(default_factory=list)
+
+
+class AttemptSummary(BaseModel):
+    """Compact record of an executed plan, fed back to the Planning Agent so
+    it never re-proposes a configuration that was already measured."""
+
+    signature: str
+    iteration: int
+    model_family: str
+    preprocessing: list[str]
+    feature_engineering: list[str]
+    tuning: str
+    primary_metric: str
+    cv_mean: float
+    cv_std: float
+    composite_score: float
 
 
 class ValidationReport(BaseModel):
@@ -104,6 +181,8 @@ class ValidationReport(BaseModel):
     interp_norm: float
     raw_metrics: dict[str, float]
     per_block_diagnostics: list[BlockDiagnostics]
+    primary_metric: str | None = None
+    latency_ms_per_1k: float | None = None
 
 
 class ReflectionOutput(BaseModel):

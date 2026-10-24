@@ -79,6 +79,26 @@ uv run pytest
 | `NEURALPILOT_PORT` | `8000` | Web server port |
 | `NEURALPILOT_MAX_ITERATIONS` | `5` | Maximum refinement iterations |
 | `NEURALPILOT_LOG_LEVEL` | `INFO` | Logging level, such as `INFO` or `DEBUG` |
+| `NEURALPILOT_RUN_BUDGET_S` | `900` | Wall-clock budget per run; the best attempt so far is kept when it runs out |
+| `NEURALPILOT_SEED` | `42` | Seed for splits, samplers and estimators |
+| `NEURALPILOT_HPO_MAX_TRIALS` | `50` | Cap on Optuna trials per attempt (larger plan values are clamped) |
+| `NEURALPILOT_HPO_TIMEOUT_S` | `300` | Optuna timeout per attempt |
+| `NEURALPILOT_HPO_MAX_ROWS` | `50000` | Training rows used for tuning/CV on large data; the final fit uses all of them |
+| `NEURALPILOT_MAX_ROWS` / `NEURALPILOT_MAX_COLS` | `2000000` / `500` | Upload size limits |
+| `NEURALPILOT_LEAKAGE_ACTION` | `drop` | `drop` excludes columns that predict the target on their own; `warn` only reports them |
+| `NEURALPILOT_MIN_SIMILARITY` | `0.5` | Past experiments less similar than this are not shown to the planner |
+
+### Evaluation protocol
+
+Each run makes one stratified (classification) or random (regression) holdout split, or a
+time/group split when the goal asks for one. Every plan is measured by cross-validation on
+the training part only, using a single primary metric (`f1_weighted`, `f1_macro` for
+imbalanced targets, or `r2`) for tuning, selection and reporting. The best attempt across
+iterations is finalized and scored once on the holdout. Identifier, constant, raw timestamp
+and free-text columns, and columns that predict the target almost perfectly on their own, are
+excluded from the features and listed in the report's assumptions. Plans already tried in a
+run are not repeated. `POST /api/runs/{run_id}/cancel` stops a run after the current trial and
+keeps its best attempt.
 
 The web page shows the current task while a run is active. The terminal logs each phase,
 iteration, verification retry, and tuning trial. A complete plan, training, validation,
@@ -86,7 +106,7 @@ reflection, and decision cycle advances the iteration counter.
 
 ### GPU training
 
-GPU mode is automatic by default when calling `run_pipeline`: if `nvidia-smi` reports an
+GPU mode is automatic by default when calling `run_pipeline` or `engine.run_attempt`: if `nvidia-smi` reports an
 available NVIDIA GPU, XGBoost and CatBoost training and tuning use CUDA. Scikit-learn model
 families continue to use CPU because they do not provide CUDA implementations. Callers can
 override this with `use_gpu=False` or request it explicitly with `use_gpu=True`; an explicit
@@ -105,7 +125,11 @@ src/neuralpilot/
   meta_features.py  dataset meta-feature extraction (shared by agents + retrieval)
   registry.py       component registry and deterministic fallback
   verification.py   deterministic plan verification
-  execution.py      execution engine for preprocessing, training, tuning, and SHAP
+  engine/           execution engine: loader, splits, preprocessing, feature_engineering,
+                    model_factory, hpo, training, evaluation, explainability, tracking, runner
+  execution.py      run_pipeline(): one-call compatibility wrapper over engine/
+  profiling.py      column roles (id/constant/datetime/text) and single-feature leakage scan
+  provenance.py     code version and library versions recorded with each run
   scoring.py        weighted multi-objective validation
   plateau.py        deterministic plateau detection
   repository.py     SQLite experiment log and nearest-neighbor retrieval
@@ -122,7 +146,7 @@ If you are learning the project structure, read it in the same order the run exe
 
 1. `schemas.py`, `config.py`, and `meta_features.py` define the contracts, defaults, and dataset summaries.
 2. `agents/requirement_agent.py`, `planning_agent.py`, `reflection_agent.py`, and `decision_agent.py` define the four LLM-only reasoning steps.
-3. `registry.py`, `verification.py`, `execution.py`, `scoring.py`, and `plateau.py` implement deterministic behavior.
+3. `registry.py`, `verification.py`, `profiling.py`, `engine/`, `scoring.py`, and `plateau.py` implement deterministic behavior (`engine/runner.py` shows how the engine pieces fit together).
 4. `repository.py` stores and retrieves previous experiments.
 5. `orchestrator.py` wires the full loop together.
 6. `web/app.py` and `web/static/index.html` expose the upload, clarification, progress, final report, and model download UI.

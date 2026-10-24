@@ -5,17 +5,22 @@ engineering steps, a candidate model family, and a tuning strategy, each
 with a one-line rationale. On refine (loop iteration > 1), it receives the
 Reflection Agent's target block and revises only that block, keeping the
 rest of the plan fixed (§3.2, §6 step 9).
+
+Every prompt lists the plans already executed in this run (with their CV
+scores) so the agent does not repeat them; on replan it is told to change
+strategy. The orchestrator also rejects exact repeats by signature.
 """
 
 from __future__ import annotations
 
 import json
 
+from .. import config
 from ..llm_client import LLMClient, get_default_client
 from ..meta_features import DatasetMetaFeatures
 from ..registry import list_components
-from ..repository import ExperimentRecord
-from ..schemas import PlanSpec, ReflectionOutput, RequirementSpec
+from ..repository import ExperimentRecord, SimilarExperiment
+from ..schemas import AttemptSummary, PlanSpec, ReflectionOutput, RequirementSpec
 
 SYSTEM_PROMPT = f"""You are the Planning Agent in the Neural Pilot system.
 You never write or execute code. You only select and parametrize trusted, pre-built \
@@ -31,6 +36,15 @@ prefer a listed name whenever it fits):
 - tuner: {list_components("tuner")}
 - feature_engineering (optional, name field): PolynomialFeatures, SelectKBest, PCA
 
+Supported params (anything else is ignored): OneHotEncoder {{min_frequency, max_categories}}; \
+StandardScaler {{with_mean, with_std}}; MinMaxScaler {{feature_range, clip}}; RobustScaler \
+{{with_centering, with_scaling, quantile_range}}; PolynomialFeatures {{degree <= 2, \
+interaction_only}} (only applied when there are <= {config.POLYNOMIAL_MAX_INPUT_WIDTH} encoded \
+features); SelectKBest {{k}}; PCA {{n_components}}. n_trials is capped at {config.HPO_MAX_TRIALS}.
+
+Scores you see are cross-validated on the training split for this dataset. Measured results \
+from the current run always outweigh similar past experiments.
+
 Produce exactly one pipeline plan (no A/B/C alternatives). Give each step a one-line \
 rationale. Respond with ONLY a JSON object matching this schema, no prose, no markdown \
 fences:
@@ -45,44 +59,91 @@ Always include exactly one "encoder" and one "scaler" preprocessing step.
 """
 
 
-def _format_similar_experiments(similar_experiments: list[ExperimentRecord]) -> str:
+def _format_similar_experiments(
+    similar_experiments: list[SimilarExperiment] | list[ExperimentRecord],
+) -> str:
     if not similar_experiments:
-        return "None available yet."
+        return "None similar enough to be useful."
     lines = []
-    for rec in similar_experiments:
+    for item in similar_experiments:
+        rec, similarity = item if isinstance(item, tuple) else (item, None)
+        score = f"{rec.final_composite_score:.3f}" if rec.final_composite_score is not None else "n/a"
+        sim = f"similarity={similarity:.2f}, " if similarity is not None else ""
         lines.append(
-            f"- dataset={rec.dataset_name}, model_family={rec.plan.get('model_family')}, "
-            f"final_score={rec.final_composite_score:.3f}, decision={rec.final_decision}"
+            f"- {sim}dataset={rec.dataset_name}, model_family={rec.plan.get('model_family')}, "
+            f"final_score={score}, decision={rec.final_decision}"
+        )
+    return "\n".join(lines)
+
+
+def _format_attempts(attempts: list[AttemptSummary]) -> str:
+    lines = []
+    for a in attempts:
+        lines.append(
+            f"- signature={a.signature} (iteration {a.iteration}): model_family={a.model_family}, "
+            f"preprocessing={a.preprocessing}, feature_engineering={a.feature_engineering or []}, "
+            f"tuning={a.tuning}, CV {a.primary_metric}={a.cv_mean:.4f} ± {a.cv_std:.4f}, "
+            f"composite={a.composite_score:.4f}"
         )
     return "\n".join(lines)
 
 
 def _base_user_prompt(
-    requirement: RequirementSpec, meta_features: DatasetMetaFeatures, similar_experiments: list[ExperimentRecord]
+    requirement: RequirementSpec,
+    meta_features: DatasetMetaFeatures,
+    similar_experiments: list[SimilarExperiment] | list[ExperimentRecord],
+    dataset_profile: dict | None = None,
 ) -> str:
-    return (
+    prompt = (
         f"Requirement spec: {requirement.model_dump_json()}\n\n"
         f"Dataset meta-features: rows={meta_features.n_rows}, cols={meta_features.n_cols}, "
         f"n_classes={meta_features.n_classes}, missing_pct={meta_features.missing_pct:.2f}, "
-        f"categorical_ratio={meta_features.categorical_ratio:.2f}\n\n"
-        f"Top-k similar past experiments (for reference, not binding):\n"
+        f"categorical_ratio={meta_features.categorical_ratio:.2f}, "
+        f"max_categorical_cardinality={meta_features.max_cardinality}"
+    )
+    if meta_features.minority_class_ratio is not None and requirement.problem_type == "classification":
+        prompt += f", minority_class_share={meta_features.minority_class_ratio:.3f}"
+    prompt += "\n"
+    if dataset_profile:
+        prompt += f"Dataset profile (deterministic): {json.dumps(dataset_profile, default=str)}\n"
+    prompt += (
+        f"\nTop-k similar past experiments (for reference, not binding):\n"
         f"{_format_similar_experiments(similar_experiments)}\n"
     )
+    return prompt
 
 
 def generate_plan(
     requirement: RequirementSpec,
     meta_features: DatasetMetaFeatures,
-    similar_experiments: list[ExperimentRecord],
+    similar_experiments: list[SimilarExperiment] | list[ExperimentRecord],
     *,
     client: LLMClient | None = None,
     iteration: int = 1,
     previous_plan: PlanSpec | None = None,
     reflection: ReflectionOutput | None = None,
     verification_failure: str | None = None,
+    attempts: list[AttemptSummary] | None = None,
+    replan: bool = False,
+    rejection: str | None = None,
+    dataset_profile: dict | None = None,
 ) -> PlanSpec:
     client = client or get_default_client()
-    user_prompt = _base_user_prompt(requirement, meta_features, similar_experiments)
+    user_prompt = _base_user_prompt(requirement, meta_features, similar_experiments, dataset_profile)
+
+    if attempts:
+        user_prompt += (
+            f"\nAlready tried in this run (do not repeat any of these exact configurations):\n"
+            f"{_format_attempts(attempts)}\n"
+        )
+    if rejection is not None:
+        user_prompt += f"\nYour previous answer was rejected: {rejection}\n"
+    if replan:
+        user_prompt += (
+            f"\nThis is a REPLAN iteration ({iteration}). The current strategy is not working: "
+            f"propose a materially different plan — a different model_family and/or "
+            f"preprocessing from those already tried.\n"
+        )
 
     if verification_failure is not None and previous_plan is not None:
         user_prompt += (

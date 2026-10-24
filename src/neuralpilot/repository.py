@@ -1,25 +1,33 @@
 """Experiment repository (§5) — SQLite store + nearest-neighbor retrieval.
 
-Retrieval is deliberately behind a single function,
-`retrieve_similar_experiments(meta_features, k)`, so V2 can swap in
-pgvector/embeddings without touching any agent-facing contract.
+Every run that reaches a terminal state is stored, including failures,
+with its iteration log (decisions, rationale, whether a guardrail forced
+the decision), metrics, model path, dataset fingerprint and library
+versions. Schema changes are applied as numbered migrations tracked by
+`PRAGMA user_version`, so older databases upgrade in place.
+
+Retrieval is behind `retrieve_similar_experiments(meta_features, k)`:
+scaled meta-feature distance, filtered to the same task and to finalized
+runs, with the similarity score returned alongside each record.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
 from . import config
-from .meta_features import DatasetMetaFeatures
+from .meta_features import DatasetMetaFeatures, memory_vector
 
-_SCHEMA = """
+_BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -35,20 +43,46 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 """
 
+# Each entry upgrades the schema by one version. Never edit a released
+# migration; append a new one.
+_MIGRATIONS: list[list[str]] = [
+    [
+        "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finalized'",
+        "ALTER TABLE runs ADD COLUMN error TEXT",
+        "ALTER TABLE runs ADD COLUMN iteration_logs_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE runs ADD COLUMN final_metrics_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE runs ADD COLUMN model_path TEXT",
+        "ALTER TABLE runs ADD COLUMN dataset_fingerprint TEXT",
+        "ALTER TABLE runs ADD COLUMN code_version TEXT",
+        "ALTER TABLE runs ADD COLUMN lib_versions_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE runs ADD COLUMN final_report_json TEXT",
+    ],
+]
+SCHEMA_VERSION = len(_MIGRATIONS)
+
 
 @dataclass
 class ExperimentRecord:
     run_id: str
     dataset_name: str
-    problem_type: str
-    target_column: str
+    problem_type: str | None
+    target_column: str | None
     meta_features: dict
     plan: dict
     scores: list[float]
     weakest_block_history: list[str]
-    final_decision: str
-    final_composite_score: float
+    final_decision: str | None
+    final_composite_score: float | None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    status: str = "finalized"
+    error: str | None = None
+    iteration_logs: list[dict] = field(default_factory=list)
+    final_metrics: dict = field(default_factory=dict)
+    model_path: str | None = None
+    dataset_fingerprint: str | None = None
+    code_version: str | None = None
+    lib_versions: dict = field(default_factory=dict)
+    final_report: dict | None = None
 
     @classmethod
     def new(cls, **kwargs) -> "ExperimentRecord":
@@ -57,6 +91,7 @@ class ExperimentRecord:
 
     @classmethod
     def _from_row(cls, row: sqlite3.Row) -> "ExperimentRecord":
+        report = row["final_report_json"]
         return cls(
             run_id=row["run_id"],
             created_at=row["created_at"],
@@ -69,16 +104,38 @@ class ExperimentRecord:
             weakest_block_history=json.loads(row["weakest_block_history_json"]),
             final_decision=row["final_decision"],
             final_composite_score=row["final_composite_score"],
+            status=row["status"],
+            error=row["error"],
+            iteration_logs=json.loads(row["iteration_logs_json"]),
+            final_metrics=json.loads(row["final_metrics_json"]),
+            model_path=row["model_path"],
+            dataset_fingerprint=row["dataset_fingerprint"],
+            code_version=row["code_version"],
+            lib_versions=json.loads(row["lib_versions_json"]),
+            final_report=json.loads(report) if report else None,
         )
+
+
+class SimilarExperiment(NamedTuple):
+    record: ExperimentRecord
+    similarity: float  # exp(-distance) in (0, 1]; 1 = identical meta-features
 
 
 class ExperimentRepository:
     def __init__(self, db_path: Path | str = config.DB_PATH):
         self.db_path = str(db_path)
-        self._conn = sqlite3.connect(self.db_path)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute(_SCHEMA)
+        self._conn.execute(_BASE_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        for target_version in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in _MIGRATIONS[target_version - 1]:
+                self._conn.execute(statement)
+            self._conn.execute(f"PRAGMA user_version = {target_version}")
 
     def close(self) -> None:
         self._conn.close()
@@ -89,8 +146,10 @@ class ExperimentRepository:
             INSERT OR REPLACE INTO runs
                 (run_id, created_at, dataset_name, problem_type, target_column,
                  meta_features_json, plan_json, scores_json, weakest_block_history_json,
-                 final_decision, final_composite_score)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 final_decision, final_composite_score, status, error, iteration_logs_json,
+                 final_metrics_json, model_path, dataset_fingerprint, code_version,
+                 lib_versions_json, final_report_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.run_id,
@@ -98,59 +157,81 @@ class ExperimentRepository:
                 record.dataset_name,
                 record.problem_type,
                 record.target_column,
-                json.dumps(record.meta_features),
-                json.dumps(record.plan),
+                json.dumps(record.meta_features, default=str),
+                json.dumps(record.plan, default=str),
                 json.dumps(record.scores),
                 json.dumps(record.weakest_block_history),
                 record.final_decision,
                 record.final_composite_score,
+                record.status,
+                record.error,
+                json.dumps(record.iteration_logs, default=str),
+                json.dumps(record.final_metrics, default=str),
+                record.model_path,
+                record.dataset_fingerprint,
+                record.code_version,
+                json.dumps(record.lib_versions),
+                json.dumps(record.final_report, default=str) if record.final_report is not None else None,
             ),
         )
         self._conn.commit()
 
-    def all_runs(self) -> list[ExperimentRecord]:
-        rows = self._conn.execute("SELECT * FROM runs ORDER BY created_at DESC").fetchall()
+    def all_runs(self, status: str | None = None) -> list[ExperimentRecord]:
+        if status is None:
+            rows = self._conn.execute("SELECT * FROM runs ORDER BY created_at DESC").fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC", (status,)
+            ).fetchall()
         return [ExperimentRecord._from_row(r) for r in rows]
 
+    def get_run(self, run_id: str) -> ExperimentRecord | None:
+        row = self._conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        return ExperimentRecord._from_row(row) if row else None
+
     def retrieve_similar_experiments(
-        self, meta_features: DatasetMetaFeatures, k: int = config.RETRIEVAL_TOP_K
-    ) -> list[ExperimentRecord]:
-        """Nearest-neighbor (cosine similarity) retrieval over the 5-dim
-        meta-feature vector (§5). No embeddings, no vector DB.
+        self,
+        meta_features: DatasetMetaFeatures,
+        k: int = config.RETRIEVAL_TOP_K,
+        *,
+        problem_type: str | None = None,
+        min_similarity: float = config.MIN_SIMILARITY,
+    ) -> list[SimilarExperiment]:
+        """Nearest neighbours by Euclidean distance over the scaled
+        memory_vector(); similarity = exp(-distance). Only finalized runs of
+        the same problem type are candidates, and results below
+        `min_similarity` are dropped rather than passed off as evidence.
         """
-        query_vec = np.array(meta_features.vector(), dtype=float)
-        query_norm = np.linalg.norm(query_vec)
+        query_vec = np.array(memory_vector(meta_features.to_dict(), problem_type), dtype=float)
 
-        scored: list[tuple[float, ExperimentRecord]] = []
-        for record in self.all_runs():
-            candidate_vec = np.array(record.meta_features.get("vector") or [], dtype=float)
-            if candidate_vec.shape != query_vec.shape:
+        scored: list[SimilarExperiment] = []
+        for record in self.all_runs(status="finalized"):
+            if problem_type is not None and record.problem_type != problem_type:
                 continue
-            candidate_norm = np.linalg.norm(candidate_vec)
-            if query_norm == 0 or candidate_norm == 0:
-                similarity = 1.0 if query_norm == candidate_norm else 0.0
-            else:
-                similarity = float(np.dot(query_vec, candidate_vec) / (query_norm * candidate_norm))
-            scored.append((similarity, record))
+            candidate_vec = np.array(memory_vector(record.meta_features, record.problem_type), dtype=float)
+            similarity = math.exp(-float(np.linalg.norm(query_vec - candidate_vec)))
+            if similarity >= min_similarity:
+                scored.append(SimilarExperiment(record, similarity))
 
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [record for _, record in scored[:k]]
+        scored.sort(key=lambda item: item.similarity, reverse=True)
+        return scored[:k]
 
 
 def retrieve_similar_experiments(
     meta_features: DatasetMetaFeatures,
     k: int = config.RETRIEVAL_TOP_K,
     repo: ExperimentRepository | None = None,
-) -> list[ExperimentRecord]:
-    """Module-level convenience wrapper — the interface seam named in §5.
-
-    Swapping in pgvector/embeddings later means changing this function's
-    body only; every agent-facing call site stays the same.
-    """
+    *,
+    problem_type: str | None = None,
+    min_similarity: float = config.MIN_SIMILARITY,
+) -> list[SimilarExperiment]:
+    """Module-level convenience wrapper — the interface seam named in §5."""
     owns_repo = repo is None
     repo = repo or ExperimentRepository()
     try:
-        return repo.retrieve_similar_experiments(meta_features, k=k)
+        return repo.retrieve_similar_experiments(
+            meta_features, k=k, problem_type=problem_type, min_similarity=min_similarity
+        )
     finally:
         if owns_repo:
             repo.close()

@@ -5,6 +5,7 @@ count, plateau flag. Output: accept | refine | replan | stop.
 
 Deterministic overrides (hardcoded guardrails, not just prompt
 instructions — the LLM is never even called when these fire):
+- compute budget exhausted -> force "stop"
 - iteration_count >= max_iterations -> force "stop"
 - plateau condition met (§4.5) -> force "stop"
 Otherwise the agent chooses freely among accept/refine/replan.
@@ -60,8 +61,16 @@ def decide(
     weakest_block_history: list[str],
     iteration_count: int,
     max_iterations: int = config.MAX_ITERATIONS,
+    budget_exhausted: bool = False,
     client: LLMClient | None = None,
 ) -> DecisionOutput:
+    if budget_exhausted:
+        return DecisionOutput(
+            decision="stop",
+            rationale="Guardrail: the run's compute budget is exhausted; finalizing the best attempt so far.",
+            forced=True,
+        )
+
     if iteration_count >= max_iterations:
         return DecisionOutput(
             decision="stop",

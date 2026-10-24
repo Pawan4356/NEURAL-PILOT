@@ -50,11 +50,52 @@ INTERPRETABILITY_TABLE = {
 PLATEAU_SCORE_DELTA_PCT = 2.0
 PLATEAU_LOOKBACK_ITERS = 2
 
+
+
+def _env_int(name: str, default: int) -> int:
+    return int(os.environ.get(name, str(default)))
+
+
+def _env_float(name: str, default: float) -> float:
+    return float(os.environ.get(name, str(default)))
+
+
 # --- Orchestration loop (§6) ---
-MAX_ITERATIONS = int(os.environ.get("NEURALPILOT_MAX_ITERATIONS", "5"))
+MAX_ITERATIONS = _env_int("NEURALPILOT_MAX_ITERATIONS", 5)
+SEED = _env_int("NEURALPILOT_SEED", 42)
+RUN_BUDGET_S = _env_float("NEURALPILOT_RUN_BUDGET_S", 900.0)  # wall-clock budget per run
+
+# --- Dataset loading limits ---
+MAX_ROWS = _env_int("NEURALPILOT_MAX_ROWS", 2_000_000)
+MAX_COLS = _env_int("NEURALPILOT_MAX_COLS", 500)
+NUMERIC_COERCION_MIN_SHARE = 0.95  # share of non-null values that must parse as numbers
+
+# --- Column profiling and leakage (audit G2) ---
+ID_UNIQUE_RATIO = 0.95
+LEAKAGE_ACTION = os.environ.get("NEURALPILOT_LEAKAGE_ACTION", "drop")  # "drop" or "warn"
+LEAKAGE_SCORE_THRESHOLD = 0.98  # single-feature CV AUC / R² / accuracy
+LEAKAGE_ACCURACY_MARGIN = 0.3  # accuracy must also beat the base rate by this much
+LEAKAGE_SAMPLE_ROWS = 20_000
+
+# --- Evaluation protocol (audit G6-G8) ---
+HOLDOUT_FRACTION = 0.2
+CV_FOLDS = 3
+IMBALANCE_MINORITY_SHARE = 0.10  # below this, use class_weight + a macro metric
+# Fixed reference so latency_norm is comparable across iterations and runs.
+LATENCY_REFERENCE_MS_PER_1K = _env_float("NEURALPILOT_LATENCY_REFERENCE_MS_PER_1K", 100.0)
+LATENCY_SAMPLE_ROWS = 1_000
+LATENCY_REPEATS = 3
+
+# --- Compute budgets (audit G9) ---
+HPO_MAX_TRIALS = _env_int("NEURALPILOT_HPO_MAX_TRIALS", 50)
+HPO_TIMEOUT_S = _env_float("NEURALPILOT_HPO_TIMEOUT_S", 300.0)
+HPO_MAX_ROWS = _env_int("NEURALPILOT_HPO_MAX_ROWS", 50_000)
+POLYNOMIAL_MAX_INPUT_WIDTH = 50  # PolynomialFeatures only below this encoded width
+POLYNOMIAL_MAX_DEGREE = 2
 
 # --- Knowledge layer (§5) ---
 RETRIEVAL_TOP_K = 3 # Top similar models (already trained)
+MIN_SIMILARITY = _env_float("NEURALPILOT_MIN_SIMILARITY", 0.5)
 
 # --- LLM client (Hugging Face Inference Providers, OpenAI-compatible) ---
 @dataclass

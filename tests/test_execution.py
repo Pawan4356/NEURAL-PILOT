@@ -10,7 +10,7 @@ from neuralpilot.schemas import (
     RequirementSpec,
     TuningStrategy,
 )
-from neuralpilot import execution
+from neuralpilot.engine import model_factory
 from neuralpilot.execution import run_pipeline
 
 
@@ -102,7 +102,7 @@ def test_no_shap_when_not_requested():
 
 
 def test_explicit_gpu_request_falls_back_to_cpu_when_unavailable(monkeypatch):
-    monkeypatch.setattr(execution, "_gpu_is_available", lambda: False)
+    monkeypatch.setattr(model_factory, "gpu_is_available", lambda: False)
     outcome = run_pipeline(_plan(), _requirement("classification"), _clf_df(), use_gpu=True)
     model_diag = next(d for d in outcome.result.diagnostics if d.block == "model_family")
     assert model_diag.details["device"] == "cpu"
