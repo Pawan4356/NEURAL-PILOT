@@ -17,6 +17,7 @@ import json
 
 from .. import config
 from ..llm_client import LLMClient, get_default_client
+from ..observability import traced
 from ..meta_features import DatasetMetaFeatures
 from ..registry import list_components
 from ..repository import ExperimentRecord, SimilarExperiment
@@ -113,6 +114,11 @@ def _base_user_prompt(
     return prompt
 
 
+@traced(
+    "planning_agent",
+    tags=["agent"],
+    metadata_fn=lambda *a, **kw: {"iteration": kw.get("iteration", 1), "replan": kw.get("replan", False)},
+)
 def generate_plan(
     requirement: RequirementSpec,
     meta_features: DatasetMetaFeatures,

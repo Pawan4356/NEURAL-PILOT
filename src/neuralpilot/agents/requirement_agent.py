@@ -18,6 +18,7 @@ import pandas as pd
 
 from .. import config
 from ..llm_client import LLMClient, get_default_client
+from ..observability import traced
 from ..meta_features import DatasetMetaFeatures
 from ..profiling import derive_problem_type
 from ..schemas import ConstraintWeights, RequirementSpec
@@ -79,6 +80,7 @@ def _user_prompt(user_goal: str, meta_features: DatasetMetaFeatures) -> str:
     )
 
 
+@traced("requirement_agent", tags=["agent"])
 def understand_requirement(
     user_goal: str, meta_features: DatasetMetaFeatures, client: LLMClient | None = None
 ) -> RequirementSpec:

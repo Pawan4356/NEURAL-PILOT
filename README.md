@@ -75,6 +75,10 @@ uv run pytest
 | `HF_TOKEN` | None | Hugging Face access token; required for agent calls |
 | `HF_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Hugging Face model |
 | `HF_PROVIDER` | `auto` | Hugging Face inference provider |
+| `NEURALPILOT_LLM_BACKEND` | `langchain` | `langchain` (LangChain chat model) or `hf` (original client, rollback only) |
+| `NEURALPILOT_LLM_STRUCTURED_OUTPUT` | `auto` | `auto` tries the provider's structured output and falls back to JSON repair; `on` or `off` |
+| `NEURALPILOT_LLM_STRUCTURED_METHOD` | `function_calling` | How structure is requested: `function_calling` or `json_schema` |
+| `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | `false` / None / `neuralpilot-dev` | Optional LangSmith tracing; payloads are redacted before they are sent |
 | `NEURALPILOT_HOST` | `127.0.0.1` | Web server host |
 | `NEURALPILOT_PORT` | `8000` | Web server port |
 | `NEURALPILOT_MAX_ITERATIONS` | `5` | Maximum refinement iterations |
@@ -113,9 +117,20 @@ override this with `use_gpu=False` or request it explicitly with `use_gpu=True`;
 request falls back to CPU and records the reason in the run fallbacks when no GPU is available.
 The selected device is recorded in the model-family diagnostics.
 
+### Orchestration and tracing
+
+The run loop is a LangGraph `StateGraph` (`graph/`). Each step is a node; routing between
+them is a set of plain functions in `graph/routing.py`. Graph state is checkpointed after
+every node in `runs/graph.sqlite3` (one thread per run id), which is what lets the run pause
+for the clarifying question and continue from the last finished step after a crash. LLM
+calls go through a LangChain chat model with transport retries and a JSON-repair fallback.
+With `LANGSMITH_TRACING=true`, each run is one LangSmith trace with a span per graph node,
+agent and LLM call; field names like `df`/`rows`/`api_key`, tabular data, SHAP feature names
+and secret values are masked before anything is sent.
+
 Generated files are written under the project root: uploaded CSVs go to `data/`, the
-SQLite experiment log is `runs/experiments.sqlite3`, and final model artifacts are saved
-as `runs/models/<run_id>.joblib`.
+SQLite experiment log is `runs/experiments.sqlite3`, graph checkpoints are in
+`runs/graph.sqlite3`, and final model artifacts are saved as `runs/models/<run_id>.joblib`.
 
 ## Project layout
 
@@ -133,10 +148,15 @@ src/neuralpilot/
   scoring.py        weighted multi-objective validation
   plateau.py        deterministic plateau detection
   repository.py     SQLite experiment log and nearest-neighbor retrieval
-  llm_client.py     Hugging Face chat-completions client with structured JSON and retry
+  llm_client.py     LLMClient protocol, original Hugging Face client, default-client selection
+  langchain_llm.py  LangChain client: structured output, JSON repair, transport backoff
+  observability.py  LangSmith tracing setup and payload redaction
+  selection.py      best-attempt rule and deterministic next-untried-plan fallback
+  reporting.py      final report and experiment records built from graph state
   schemas.py        shared Pydantic contracts for agent I/O and execution results
   agents/           the four LLM agents
-  orchestrator.py   end-to-end planning and execution loop
+  graph/            LangGraph orchestration: state, nodes, routing, build (checkpointer)
+  orchestrator.py   façade over the graph: create_run, run_to_completion, apply_clarification
   web/              minimal upload, clarification, progress, and report UI
 ```
 
@@ -148,7 +168,7 @@ If you are learning the project structure, read it in the same order the run exe
 2. `agents/requirement_agent.py`, `planning_agent.py`, `reflection_agent.py`, and `decision_agent.py` define the four LLM-only reasoning steps.
 3. `registry.py`, `verification.py`, `profiling.py`, `engine/`, `scoring.py`, and `plateau.py` implement deterministic behavior (`engine/runner.py` shows how the engine pieces fit together).
 4. `repository.py` stores and retrieves previous experiments.
-5. `orchestrator.py` wires the full loop together.
+5. `orchestrator.py` is the entry point for a run; `graph/routing.py` shows the whole control flow at a glance and `graph/nodes.py` has one function per step.
 6. `web/app.py` and `web/static/index.html` expose the upload, clarification, progress, final report, and model download UI.
 
 ## Scope and technical reference

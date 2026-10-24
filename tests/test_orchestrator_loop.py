@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import neuralpilot.orchestrator as orch
+import joblib
+
+from neuralpilot.graph import nodes
 from neuralpilot import llm_client
 from neuralpilot.agents.requirement_agent import InvalidClarification
 from neuralpilot.orchestrator import apply_clarification, create_run, run_to_completion
@@ -41,14 +43,6 @@ def repo(tmp_path):
     r = ExperimentRepository(db_path=tmp_path / "test.sqlite3")
     yield r
     r.close()
-
-
-@pytest.fixture(autouse=True)
-def isolated(tmp_path, monkeypatch):
-    monkeypatch.setattr(orch, "MODELS_DIR", tmp_path / "models")
-    orch.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    yield
-    llm_client._default_client = None
 
 
 def _linear_data_csv(tmp_path, n=300):
@@ -120,20 +114,21 @@ def test_best_iteration_is_finalized_not_the_last(tmp_path, repo):
     report = state.final_report
     assert report["best_iteration"] == 1
     assert report["model_family"] == "LinearModel"
-    assert type(state.best.outcome.pipeline.named_steps["model"]).__name__ == "LogisticRegression"
+    saved = joblib.load(state.model_path)
+    assert type(saved.named_steps["model"]).__name__ == "LogisticRegression"
     assert report["composite_score"] == pytest.approx(first.composite_score)
 
 
 def test_holdout_is_scored_exactly_once(tmp_path, repo, monkeypatch):
     """G7: attempts are compared on CV; the holdout is used once at the end."""
     calls = []
-    real = orch.holdout_evaluate
+    real = nodes.holdout_evaluate
 
     def spy(pipeline, prepared):
         calls.append(1)
         return real(pipeline, prepared)
 
-    monkeypatch.setattr(orch, "holdout_evaluate", spy)
+    monkeypatch.setattr(nodes, "holdout_evaluate", spy)
     client = ScriptedClient(
         {
             RequirementSpec: [_requirement()],
