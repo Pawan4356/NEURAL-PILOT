@@ -9,6 +9,8 @@ module executes and logs every step (inputs, outputs, timing, errors).
 from __future__ import annotations
 
 import time
+import shutil
+import subprocess
 import warnings
 from dataclasses import dataclass
 from typing import Callable
@@ -100,6 +102,45 @@ def _search_space(model_family: str, trial: optuna.Trial, problem_type: ProblemT
     return {}
 
 
+def _gpu_is_available() -> bool:
+    """Return whether the host exposes an NVIDIA GPU through nvidia-smi."""
+    nvidia_smi = shutil.which("nvidia-smi")
+    if nvidia_smi is None:
+        return False
+    try:
+        result = subprocess.run(
+            [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+            text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _resolve_gpu(use_gpu: bool | None) -> tuple[bool, str | None]:
+    """Resolve the requested GPU mode and return (enabled, fallback reason)."""
+    if use_gpu is False:
+        return False, None
+    if _gpu_is_available():
+        return True, None
+    if use_gpu is True:
+        return False, "GPU was requested but no usable NVIDIA GPU was detected"
+    return False, None
+
+
+def _gpu_model_params(model_family: str, gpu_enabled: bool) -> dict:
+    if not gpu_enabled:
+        return {}
+    if model_family == "XGBoost":
+        return {"tree_method": "hist", "device": "cuda"}
+    if model_family == "CatBoost":
+        return {"task_type": "GPU", "devices": "0"}
+    return {}
+
+
 def _prepare_xy(
     df: pd.DataFrame, requirement: RequirementSpec, random_state: int
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, list[str], list[str], LabelEncoder | None]:
@@ -184,6 +225,7 @@ def _tune_hyperparameters(
     problem_type: ProblemType,
     X_train: pd.DataFrame,
     y_train: pd.Series,
+    gpu_enabled: bool,
     progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[dict, list[dict], BlockDiagnostics]:
     start = time.perf_counter()
@@ -211,6 +253,7 @@ def _tune_hyperparameters(
 
         def objective(trial: optuna.Trial) -> float:
             params = _search_space(model_family, trial, problem_type)
+            params.update(_gpu_model_params(model_family, gpu_enabled))
             estimator = model_spec.build(problem_type, **params)
             pipeline = Pipeline([("preprocess", preprocessor), *fe_steps, ("model", estimator)])
             with warnings.catch_warnings():
@@ -299,10 +342,21 @@ def run_pipeline(
     *,
     generate_shap: bool = False,
     random_state: int = 42,
+    use_gpu: bool | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> ExecutionOutcome:
     diagnostics: list[BlockDiagnostics] = []
     fallbacks: list[dict] = []
+    gpu_enabled, gpu_fallback_reason = _resolve_gpu(use_gpu)
+    if gpu_fallback_reason:
+        fallbacks.append(
+            {
+                "category": "compute",
+                "requested": "GPU",
+                "used": "CPU",
+                "reason": gpu_fallback_reason,
+            }
+        )
 
     # --- split ---
     t0 = time.perf_counter()
@@ -354,6 +408,7 @@ def run_pipeline(
         requirement.problem_type,
         X_train,
         y_train,
+        gpu_enabled,
         progress_callback=progress_callback,
     )
     fallbacks.extend(tuning_fallbacks)
@@ -364,7 +419,8 @@ def run_pipeline(
     model_spec, model_fb = resolve_component("model_family", plan.model_family)
     if model_fb and model_fb.to_dict() not in fallbacks:
         fallbacks.append(model_fb.to_dict())
-    estimator = model_spec.build(requirement.problem_type, **best_params)
+    model_params = {**best_params, **_gpu_model_params(model_spec.name, gpu_enabled)}
+    estimator = model_spec.build(requirement.problem_type, **model_params)
     pipeline = Pipeline([("preprocess", preprocessor), *fe_steps, ("model", estimator)])
     if progress_callback:
         progress_callback(f"Final training of {model_spec.name}")
@@ -373,7 +429,11 @@ def run_pipeline(
         BlockDiagnostics(
             block="model_family",
             duration_seconds=time.perf_counter() - t0,
-            details={"model_family": model_spec.name, "params": best_params},
+            details={
+                "model_family": model_spec.name,
+                "params": model_params,
+                "device": "cuda" if gpu_enabled and model_spec.name in {"XGBoost", "CatBoost"} else "cpu",
+            },
         )
     )
 
