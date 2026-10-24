@@ -198,3 +198,40 @@ class DecisionOutput(BaseModel):
     decision: Decision
     rationale: str
     forced: bool = False
+
+
+class IterationLog(BaseModel):
+    """One completed loop iteration, as shown in the UI and persisted."""
+
+    iteration: int
+    plan_summary: dict
+    composite_score: float
+    accuracy_norm: float
+    latency_norm: float
+    interp_norm: float
+    weakest_block: str
+    decision: str
+    decision_rationale: str
+    fallbacks: list[dict] = Field(default_factory=list)
+    verification_warnings: list[str] = Field(default_factory=list)
+    signature: str = ""
+    plan_source: str = "planner"  # "planner" or "deterministic_fallback"
+    primary_metric: str = ""
+    cv_mean: float = 0.0
+    cv_std: float = 0.0
+    latency_ms_per_1k: float = 0.0
+    decision_forced: bool = False
+    plan_adjustments: list[str] = Field(default_factory=list)
+
+
+class BestAttempt(BaseModel):
+    """The best attempt so far, selected on CV — never by an LLM.
+
+    Pure data so it can live in checkpointed graph state; the fitted
+    pipeline is kept in `graph.resources` and on disk, not here."""
+
+    iteration: int
+    plan: PlanSpec
+    summary: AttemptSummary
+    validation: ValidationReport
+    attempt: AttemptResult

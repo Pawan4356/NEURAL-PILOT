@@ -27,18 +27,18 @@
 ### Rules for every session that continues this roadmap
 1. **Read this section before starting work.** It says which phases are done, where the code is, and what was deliberately done differently from the plan below.
 2. **When a phase is finished, update this section in the same session**: tick the phase in the status table, add a "Phase N — done" entry (what was built, tests added, verification results, deviations, known limitations), tick the matching items in Deliverable 12, and update "Next up".
-3. **Keep the code modular and human-readable:** one responsibility per module, small named functions, docstrings that explain *why*, comments and naming that match the surrounding code, no clever one-liners. Someone new to the project should be able to follow a run by reading `orchestrator.py` → `engine/runner.py` → the engine components.
-4. Run tests with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q -p no:warnings` (ROS plugins break plain `pytest` on this machine). A phase is not done until the full suite passes.
+3. **Keep the code modular and human-readable:** one responsibility per module, small named functions, docstrings that explain *why*, comments and naming that match the surrounding code, no clever one-liners. Someone new to the project should be able to follow a run by reading `orchestrator.py` → `graph/routing.py` → `graph/nodes.py` → `engine/runner.py` → the engine components.
+4. Run tests with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q -p no:warnings` (ROS plugins break plain `pytest` on this machine). A phase is not done until the full suite passes. `uv` lives at `~/.local/bin/uv` (not on `PATH`); add dependencies with `env -u PYTHONPATH ~/.local/bin/uv add <pkg>`.
 5. Where a phase's plan below turns out to be wrong or incomplete, follow the better design, then record the deviation and the reason here.
 
 ### Status
 
 | Phase | Status | Date |
 |---|---|---|
-| 0 — Correctness safety net | ✅ Done (uncommitted at time of writing) | 2026-10-24 |
-| 1 — Evaluation protocol + engine package split | ✅ Done (uncommitted at time of writing) | 2026-10-24 |
-| 2 — LangChain LLM layer + LangSmith | ⬜ Not started | |
-| 3 — LangGraph orchestration | ⬜ Not started | |
+| 0 — Correctness safety net | ✅ Done (commit `3b08e64`) | 2026-10-24 |
+| 1 — Evaluation protocol + engine package split | ✅ Done (commit `3b08e64`) | 2026-10-24 |
+| 2 — LangChain LLM layer + LangSmith | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
+| 3 — LangGraph orchestration | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
 | 4 — Registry v2, candidates, diversity | ⬜ Not started | |
 | 5 — Constraint validator + ValidationReport v2 | ⬜ Not started | |
 | 6 — MLflow tracking | ⬜ Not started | |
@@ -48,7 +48,63 @@
 | 10 — External research | ⬜ Not started | |
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
 
-**Next up:** Phase 2 (LangChain + LangSmith, Track B) and Phase 4 (registry v2, Track A) can start in parallel. Phase 3 merges after Phase 2. Before or alongside Phase 11, surface the new report fields in the UI (see Phase 1 limitations).
+**Next up:** Phase 4 (registry v2, plan resolution, candidate diversity). It plugs into the graph as a richer `resolve_plan` node and a multi-candidate `execute`. Then Phase 5 (constraint validator; this is where a separate `validate` node appears) and Phase 6 (MLflow, behind the existing `Tracker` seam). Before or alongside Phase 11, surface the new report fields in the UI (see Phase 1 limitations). Still owed from Phases 2–3: one manual run with a real `HF_TOKEN` and LangSmith key (see "not verified" below).
+
+### Phase 2 + 3 — done (2026-10-24)
+
+**Test status:** 174 tests pass: the 126 from Phase 0/1 (three updated, see below) plus 48 new.
+
+**Where the code lives**
+- `src/neuralpilot/langchain_llm.py` — `LangChainLLMClient` (same `complete_json` protocol), `build_chat_model` (`ChatHuggingFace` over HF Inference Providers, same `HF_*` settings), `call_with_backoff` / `is_transient`.
+- `src/neuralpilot/llm_client.py` — protocol and original `HFLLMClient` unchanged; `get_default_client()` picks the backend from `NEURALPILOT_LLM_BACKEND` (`langchain` default, `hf` rollback).
+- `src/neuralpilot/observability.py` — `run_tracing()`, `traced()`, `redact_payload()`, `redaction_hooks()`, `tracing_status()`.
+- `src/neuralpilot/graph/` — `state.py` (`NPState` TypedDict, reducers, checkpoint type allowlist), `context.py` (`RunContext`: repo, cancel flag, progress callback, optional LLM client), `resources.py` (bounded caches for DataFrames, `PreparedData`, best pipeline), `nodes.py` (one function per step), `routing.py` (pure routers + `recursion_limit`), `build.py` (wiring, error guard, `SqliteSaver`).
+- `src/neuralpilot/orchestrator.py` — now a façade: `create_run`, `run_to_completion`, `apply_clarification`, and `RunState` as the UI projection of graph state. `web/app.py` did not need changes.
+- `src/neuralpilot/selection.py` (`is_better`, `next_untried_plan`) and `src/neuralpilot/reporting.py` (final report, finalized/failed records) — logic moved out of the old orchestrator unchanged.
+- `schemas.py` — `IterationLog` and `BestAttempt` are now Pydantic models (they live in checkpointed state).
+- Tests: `tests/test_llm_adapter.py`, `tests/test_tracing_redaction.py`, `tests/graph/test_routing.py`, `tests/graph/test_graph_e2e.py`, a full web-flow test in `tests/test_web.py`, and `tests/conftest.py` (sends checkpoints and models to a temp dir).
+
+**Phase 2 — LangChain + LangSmith**
+- Each call first asks the provider for structured output (`with_structured_output`, method from `NEURALPILOT_LLM_STRUCTURED_METHOD`, default `function_calling`), then falls back to plain chat + the existing JSON-repair loop. A capability error (provider has no tool calling) switches structured output off for that client; a reply that just doesn't fit the schema falls back for that call only. `NEURALPILOT_LLM_STRUCTURED_OUTPUT=auto|on|off`.
+- Transport retries (429/408/5xx, timeouts, dropped connections): ≤ 3 attempts, exponential backoff with jitter, separate from JSON-repair retries. Client errors (400/401) are raised at once.
+- Tracing: when `LANGSMITH_TRACING=true`, one run = one trace (`neuralpilot_run`), with a span per graph node, per agent (`requirement_agent`, `planning_agent` with iteration/replan metadata, `reflection_agent`, `decision_agent` with iteration) and per LLM call. Root and LLM spans carry `run_id`, `dataset_fingerprint`, `code_version`, `llm_backend`, `llm_model`.
+- Redaction (inside LangSmith's own `hide_inputs`/`hide_outputs`, plus `process_inputs` on agent spans): keys like `df`, `rows`, `sample`, `api_key`, `token`; any DataFrame/Series/ndarray; `shap_summary` (one-hot feature names contain category values); and the values of `HF_TOKEN`, `LANGSMITH_API_KEY`, `TAVILY_API_KEY` wherever they appear.
+- Startup log prints the backend/model and whether tracing is on (never the key).
+
+**Phase 3 — LangGraph**
+- Graph: `understand → [clarify] → prepare → retrieve_knowledge → start_iteration → plan → resolve_plan → execute → reflect → decide → (start_iteration | finalize → persist)`, with `fail` reachable from every node. Diagram in the `graph/routing.py` docstring.
+- Every node is wrapped so an exception becomes `error` in state and the routers send it to `fail`, which persists the run as failed. Interrupts pass through. Errors that escape the graph (e.g. the recursion limit) are caught by the façade and persisted too.
+- Clarification is `interrupt()` + `Command(resume=…)`. The façade validates the answer first (bad answer → HTTP 400, run keeps waiting, as before); the `clarify` node re-validates, re-asks once, then fails (`MAX_CLARIFICATION_ROUNDS = 2`).
+- Checkpoints: `SqliteSaver` at `runs/graph.sqlite3`, `thread_id = run_id`, `durability="sync"`. The serializer only rebuilds NeuralPilot's own schema classes (checked with `LANGGRAPH_STRICT_MSGPACK=true`). State holds no DataFrames or fitted models.
+- Crash recovery: re-calling `run_to_completion` continues from the last finished node; a test kills the run inside `reflect` and checks the attempt is not trained again and the pipeline is reloaded from disk.
+- `recursion_limit` is computed from `max_iterations`, plan retries and clarification rounds (60 for 5 iterations).
+
+**Verification**
+- Graph scenarios: accept at 1, refine → accept, replan → different plan, duplicate plan → re-ask → deterministic fallback, verification failure ×3 → failed + persisted, budget exhausted → best so far, cancel before any attempt → failed, iteration cap → best so far, clarification pause/resume, invalid answer inside the graph → re-ask → fail, recursion limit → failed + persisted, finished run is not re-executed.
+- Web: `TestClient` test with the real background thread: upload → awaiting clarification → answer → finalized → model download.
+- Tracing: a whole run traced into a capturing LangSmith client; no category values and no `HF_TOKEN` in any payload; ≥ 4 LLM spans with `run_id`. Removing the `shap_summary` redaction makes this test fail (checked).
+- Real `ChatHuggingFace` exercised with a stubbed `InferenceClient`: the tool definition is sent and the tool call is parsed; a provider that ignores tools still works through JSON repair.
+
+**Not verified (needs your credentials; nothing was sent to Hugging Face or LangSmith)**
+- Whether `meta-llama/Llama-3.3-70B-Instruct` via `HF_PROVIDER=auto` honours tool calling (`function_calling`) or `json_schema`. If structured output keeps failing, the log says so once and the JSON-repair path is used; try `NEURALPILOT_LLM_STRUCTURED_METHOD=json_schema`.
+- A real LangSmith trace. Suggested check: `LANGSMITH_TRACING=true NEURALPILOT_MAX_ITERATIONS=2 uv run neuralpilot`, run one dataset, confirm one trace with node, agent and LLM spans.
+- The web UI in a browser (the JSON it polls is unchanged).
+
+**Deviations from the plan (deliberate)**
+- **Old loop deleted, no `NEURALPILOT_ORCHESTRATOR=legacy` switch.** Keeping two orchestrators would double the code that has to stay in sync; rollback is `git revert` to `3b08e64`. The `NEURALPILOT_LLM_BACKEND=hf` switch is kept, because LLM behaviour is the unverified part.
+- **No separate `validate` node yet.** Scoring and best-attempt selection run inside `execute`, because the fitted pipeline cannot be put in state and must be kept or dropped in the step that produced it. The best pipeline is held in memory and written to `runs/models/<run_id>.joblib` whenever it improves (so a resumed run can finalize). Phase 5's validator works on `AttemptResult`s only and can become its own node then.
+- **Decision agent kept as an LLM node** (behind the same guardrails). The roadmap's deterministic `route` node belongs to Phase 9; Phase 3 was a behaviour-preserving port.
+- **Retrieval runs once per run** (`retrieve_knowledge`), not every iteration; the result could not change mid-run.
+- **Budget clock starts at `prepare`**, after clarification, so time waiting for the user no longer counts against `RUN_BUDGET_S`.
+- **No `ChatPromptTemplate`s.** The `LLMClient` protocol takes plain strings and the prompts contain literal JSON braces that templates would need escaped; converting them adds risk for no gain until prompts are versioned (LangSmith datasets, P2).
+- **No LangGraph `RetryPolicy`.** Transport retries already happen in the adapter; a second layer would multiply retries.
+- **Structured output gets a JSON Schema dict, not the Pydantic class**, because `ChatHuggingFace` raises "Pydantic schema is not supported for function calling". The reply is validated against the Pydantic model either way.
+
+**Known limitations / open items carried forward**
+- Per-agent temperature (0 for requirement understanding, ≤ 0.3 for planning) is not set; all calls use `LLMConfig.temperature` (0.2). It needs a protocol change that would break the test fakes' signature.
+- `NEURALPILOT_PRIVACY_MODE` column aliasing and LangSmith feedback scores (`constraints_passed`, holdout metric on the root run) are not implemented; they fit Phase 5/11.
+- `runs/graph.sqlite3` is never pruned. The web app still keeps `RUNS` in memory, so after a restart the UI cannot list old runs even though their checkpoints exist (restart-safe run listing is P2).
+- Existing tests changed on purpose: the "best iteration" test loads the saved model instead of reading `state.best.outcome.pipeline` (fitted pipelines are no longer in run state); the holdout spy patches `graph.nodes.holdout_evaluate`; `MODELS_DIR` is patched on `config` via `tests/conftest.py`.
 
 ### Phase 0 + 1 — done (2026-10-24)
 
@@ -1239,7 +1295,7 @@ data/                        uploads (retention policy: delete after N days, con
 
 **Next (P1), partially parallelisable:**
 - Track A: Phase 1 (engine split + evaluation protocol) ✅ done 2026-10-24 → Phase 4 (registry v2 + candidates) → Phase 5 (validator).
-- Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) → Phase 3 (LangGraph port; merge after Phase 1 lands).
+- Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) ✅ done 2026-10-24 → Phase 3 (LangGraph port) ✅ done 2026-10-24.
 - Phase 6 (MLflow) after Phases 1 and 4.
 
 **Then (P2):** Phase 7 (memory v2 + benchmark) ∥ Phase 8 (doc RAG); Phase 9 (reflection v2/routing); run queue, upload limits, restart-safe run listing.

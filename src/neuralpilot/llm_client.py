@@ -1,5 +1,9 @@
-"""Thin LLM client wrapping Hugging Face Inference Providers (OpenAI-compatible
-chat completions) with structured-JSON extraction + retry.
+"""LLM client protocol plus the original Hugging Face client.
+
+The default transport is now LangChain (`langchain_llm.LangChainLLMClient`);
+`HFLLMClient` below wraps Hugging Face Inference Providers directly
+(OpenAI-compatible chat completions) with structured-JSON extraction +
+retry, and stays available via NEURALPILOT_LLM_BACKEND=hf.
 
 The four agents (§3) never write or execute code — they only produce
 structured JSON that this client validates against a pydantic schema
@@ -102,11 +106,24 @@ class HFLLMClient:
         raise LLMJSONError(f"Failed to get valid JSON after {max_retries + 1} attempts: {last_error}")
 
 # Type Hint, Initially None
-_default_client: HFLLMClient | None = None
+_default_client: LLMClient | None = None
 
 
-def get_default_client() -> HFLLMClient:
+def get_default_client() -> LLMClient:
+    """The process-wide client, built on first use. NEURALPILOT_LLM_BACKEND
+    picks the transport: "langchain" (default) or "hf" (legacy rollback)."""
     global _default_client
     if _default_client is None:
-        _default_client = HFLLMClient()
+        from . import config
+
+        if config.LLM_BACKEND == "hf":
+            _default_client = HFLLMClient()
+        elif config.LLM_BACKEND == "langchain":
+            from .langchain_llm import LangChainLLMClient
+
+            _default_client = LangChainLLMClient()
+        else:
+            raise ValueError(
+                f"Unknown NEURALPILOT_LLM_BACKEND '{config.LLM_BACKEND}'; use 'langchain' or 'hf'."
+            )
     return _default_client

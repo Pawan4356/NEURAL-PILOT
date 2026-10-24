@@ -9,6 +9,7 @@ next refinement.
 from __future__ import annotations
 
 from ..llm_client import LLMClient, get_default_client
+from ..observability import traced
 from ..schemas import ReflectionOutput, ValidationReport
 
 SYSTEM_PROMPT = """You are the Reflection Agent in the Neural Pilot system.
@@ -40,6 +41,7 @@ def _user_prompt(report: ValidationReport) -> str:
     )
 
 
+@traced("reflection_agent", tags=["agent"])
 def reflect(report: ValidationReport, client: LLMClient | None = None) -> ReflectionOutput:
     client = client or get_default_client()
     return client.complete_json(SYSTEM_PROMPT, _user_prompt(report), ReflectionOutput)

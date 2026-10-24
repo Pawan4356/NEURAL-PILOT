@@ -69,3 +69,76 @@ def test_cancel_sets_the_event(client, tmp_path):
     web_app.RUNS["r2"] = state
     assert client.post("/api/runs/r2/cancel").status_code == 200
     assert state.cancel_event.is_set()
+
+
+def test_full_web_flow_runs_the_graph_through_clarification(tmp_path, monkeypatch):
+    """Upload -> poll -> clarify -> poll -> finalized, with the real
+    background thread driving the LangGraph run and a scripted LLM."""
+    import time
+
+    import numpy as np
+
+    from neuralpilot import llm_client
+    from neuralpilot.schemas import (
+        ConstraintWeights,
+        DecisionOutput,
+        PlanSpec,
+        PreprocessingStep,
+        ReflectionOutput,
+        RequirementSpec,
+        TuningStrategy,
+    )
+
+    class Scripted:
+        responses = {
+            RequirementSpec: RequirementSpec(
+                target_column="guess", target_confidence=0.3, problem_type="classification",
+                constraint_weights=ConstraintWeights(), weight_confidence=0.9,
+            ),
+            PlanSpec: PlanSpec(
+                preprocessing=[
+                    PreprocessingStep(category="encoder", component="OneHotEncoder"),
+                    PreprocessingStep(category="scaler", component="StandardScaler"),
+                ],
+                model_family="LinearModel",
+                tuning=TuningStrategy(component="NoTuning", n_trials=0),
+            ),
+            ReflectionOutput: ReflectionOutput(weakest_block="model_family", rationale="r"),
+            DecisionOutput: DecisionOutput(decision="accept", rationale="good"),
+        }
+
+        def complete_json(self, system_prompt, user_prompt, schema, *, max_retries=2):
+            return self.responses[schema]
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    from neuralpilot import orchestrator
+    from neuralpilot.repository import ExperimentRepository
+
+    monkeypatch.setattr(orchestrator, "ExperimentRepository", lambda: ExperimentRepository(db_path=tmp_path / "e.sqlite3"))
+    llm_client._default_client = Scripted()
+    web_app.RUNS.clear()
+    client = TestClient(web_app.app)
+
+    rng = np.random.default_rng(0)
+    csv = tmp_path / "upload.csv"
+    pd.DataFrame({"x": rng.normal(size=120), "label": rng.choice([0, 1], size=120)}).to_csv(csv, index=False)
+
+    def wait_for(run_id, status):
+        for _ in range(300):
+            body = client.get(f"/api/runs/{run_id}").json()
+            if body["status"] == status:
+                return body
+            time.sleep(0.1)
+        raise AssertionError(f"run never reached {status}: {body}")
+
+    with csv.open("rb") as f:
+        run_id = client.post("/api/runs", files={"file": ("u.csv", f, "text/csv")}, data={"goal": "predict"}).json()["run_id"]
+    body = wait_for(run_id, "awaiting_clarification")
+    assert "label" in body["clarification_question"]
+
+    assert client.post(f"/api/runs/{run_id}/clarify", data={"answer": "label"}).status_code == 200
+    body = wait_for(run_id, "finalized")
+    assert body["final_report"]["target_column"] == "label"
+    assert body["iteration_logs"][0]["decision"] == "accept"
+    assert client.get(f"/api/runs/{run_id}/model").status_code == 200
+    web_app.RUNS.clear()

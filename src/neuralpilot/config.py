@@ -97,6 +97,27 @@ POLYNOMIAL_MAX_DEGREE = 2
 RETRIEVAL_TOP_K = 3 # Top similar models (already trained)
 MIN_SIMILARITY = _env_float("NEURALPILOT_MIN_SIMILARITY", 0.5)
 
+# --- Orchestration graph (LangGraph, Phase 3) ---
+GRAPH_DB_PATH = RUNS_DIR / "graph.sqlite3"  # checkpoints; thread_id = run_id
+MODELS_DIR = RUNS_DIR / "models"
+MAX_PLAN_ATTEMPTS = 3  # plan -> verify -> dedupe tries per iteration
+MAX_CLARIFICATION_ROUNDS = 2
+
+# --- LLM transport (Phase 2) ---
+# "langchain" routes calls through a LangChain chat model; "hf" is the
+# original huggingface_hub client, kept as a rollback.
+LLM_BACKEND = os.environ.get("NEURALPILOT_LLM_BACKEND", "langchain")
+# "auto" tries the provider's structured output first and falls back to the
+# JSON-repair loop; "on" never falls back; "off" always uses the repair loop.
+LLM_STRUCTURED_OUTPUT = os.environ.get("NEURALPILOT_LLM_STRUCTURED_OUTPUT", "auto")
+# How the provider is asked for structure: "function_calling" (tool call) or
+# "json_schema" (response_format). Which one a given HF provider honours varies.
+LLM_STRUCTURED_METHOD = os.environ.get("NEURALPILOT_LLM_STRUCTURED_METHOD", "function_calling")
+LLM_TRANSPORT_RETRIES = _env_int("NEURALPILOT_LLM_TRANSPORT_RETRIES", 3)
+LLM_BACKOFF_BASE_S = 1.0
+LLM_BACKOFF_MAX_S = 20.0
+
+
 # --- LLM client (Hugging Face Inference Providers, OpenAI-compatible) ---
 @dataclass
 class LLMConfig:

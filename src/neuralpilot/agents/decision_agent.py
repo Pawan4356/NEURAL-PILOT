@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from .. import config
 from ..llm_client import LLMClient, get_default_client
+from ..observability import traced
 from ..plateau import detect_plateau
 from ..schemas import DecisionOutput
 
@@ -53,6 +54,11 @@ def _user_prompt(
     )
 
 
+@traced(
+    "decision_agent",
+    tags=["agent"],
+    metadata_fn=lambda *a, **kw: {"iteration": kw.get("iteration_count")},
+)
 def decide(
     *,
     composite_score: float,
