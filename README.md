@@ -84,6 +84,15 @@ The web page shows the current task while a run is active. The terminal logs eac
 iteration, verification retry, and tuning trial. A complete plan, training, validation,
 reflection, and decision cycle advances the iteration counter.
 
+### GPU training
+
+GPU mode is automatic by default when calling `run_pipeline`: if `nvidia-smi` reports an
+available NVIDIA GPU, XGBoost and CatBoost training and tuning use CUDA. Scikit-learn model
+families continue to use CPU because they do not provide CUDA implementations. Callers can
+override this with `use_gpu=False` or request it explicitly with `use_gpu=True`; an explicit
+request falls back to CPU and records the reason in the run fallbacks when no GPU is available.
+The selected device is recorded in the model-family diagnostics.
+
 Generated files are written under the project root: uploaded CSVs go to `data/`, the
 SQLite experiment log is `runs/experiments.sqlite3`, and final model artifacts are saved
 as `runs/models/<run_id>.joblib`.
