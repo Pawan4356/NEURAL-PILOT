@@ -3,6 +3,11 @@
 All tunables that the spec treats as fixed defaults (§3 weight defaults,
 plateau thresholds, iteration caps, etc.) live here so every module reads
 from one place instead of hardcoding literals in multiple files.
+
+Importing this module loads the project's `.env` first, so settings there
+apply without sourcing it by hand. Variables already set in the real
+environment always win, so `NEURALPILOT_LLM_SOURCE=nvidia uv run ...`
+still overrides the file.
 """
 
 from __future__ import annotations
@@ -15,6 +20,37 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 RUNS_DIR = PROJECT_ROOT / "runs"
 DB_PATH = RUNS_DIR / "experiments.sqlite3"
+DOTENV_PATH = PROJECT_ROOT / ".env"
+
+
+def load_dotenv(path: Path = DOTENV_PATH) -> list[str]:
+    """Put `KEY=VALUE` lines from `path` into os.environ and return the names
+    that were set. Existing environment variables are never overwritten, and a
+    missing file is not an error. Set NEURALPILOT_DOTENV=off to skip the file."""
+    if os.environ.get("NEURALPILOT_DOTENV", "on").strip().lower() in ("off", "0", "false"):
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+    loaded = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.removeprefix("export ").partition("=")
+        key, value = key.strip(), value.strip()
+        if not key or key in os.environ:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ[key] = value
+        loaded.append(key)
+    return loaded
+
+
+DOTENV_LOADED = load_dotenv()
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -131,18 +167,28 @@ LLM_BACKEND = os.environ.get("NEURALPILOT_LLM_BACKEND", "langchain")
 # "auto" tries the provider's structured output first and falls back to the
 # JSON-repair loop; "on" never falls back; "off" always uses the repair loop.
 LLM_STRUCTURED_OUTPUT = os.environ.get("NEURALPILOT_LLM_STRUCTURED_OUTPUT", "auto")
-# How the provider is asked for structure: "function_calling" (tool call) or
-# "json_schema" (response_format). Which one a given HF provider honours varies.
-LLM_STRUCTURED_METHOD = os.environ.get("NEURALPILOT_LLM_STRUCTURED_METHOD", "function_calling")
+# How the provider is asked for structure: "function_calling" (tool call),
+# "json_schema" (response_format), or "none" to let the provider decide.
+# Which one a given HF provider honours varies, so Hugging Face is told
+# explicitly; NVIDIA NIM picks the method itself from the schema and warns
+# when it is told which one to use, so its default is "none".
+LLM_STRUCTURED_METHOD = os.environ.get("NEURALPILOT_LLM_STRUCTURED_METHOD", "").strip().lower()
 LLM_TRANSPORT_RETRIES = _env_int("NEURALPILOT_LLM_TRANSPORT_RETRIES", 3)
 LLM_BACKOFF_BASE_S = 1.0
 LLM_BACKOFF_MAX_S = 20.0
 
 
 # --- LLM source: which provider the agents call ---
-# "huggingface" (default) uses HF Inference Providers; "claude" uses the Anthropic API.
+# "huggingface" (default) uses HF Inference Providers; "nvidia" uses NVIDIA NIM
+# (build.nvidia.com by default, or a self-hosted NIM via NVIDIA_BASE_URL).
 LLM_SOURCE = os.environ.get("NEURALPILOT_LLM_SOURCE", "huggingface").strip().lower()
-LLM_SOURCES = ("huggingface", "claude")
+LLM_SOURCES = ("huggingface", "nvidia")
+
+# Default structured-output method per source, used when
+# NEURALPILOT_LLM_STRUCTURED_METHOD is unset.
+_DEFAULT_STRUCTURED_METHOD = {"huggingface": "function_calling", "nvidia": "none"}
+if not LLM_STRUCTURED_METHOD:
+    LLM_STRUCTURED_METHOD = _DEFAULT_STRUCTURED_METHOD.get(LLM_SOURCE, "none")
 
 
 # --- LLM client (Hugging Face Inference Providers, OpenAI-compatible) ---
@@ -163,19 +209,24 @@ class LLMConfig:
 LLM_CONFIG = LLMConfig()
 
 
-# --- LLM client (Anthropic Claude API), used when NEURALPILOT_LLM_SOURCE=claude ---
+# --- LLM client (NVIDIA NIM, OpenAI-compatible), used when NEURALPILOT_LLM_SOURCE=nvidia ---
 @dataclass
-class ClaudeConfig:
-    api_key: str | None = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY"))
-    model: str = field(default_factory=lambda: os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5"))
+class NvidiaConfig:
+    api_key: str | None = field(default_factory=lambda: os.environ.get("NVIDIA_API_KEY"))
+    model: str = field(
+        default_factory=lambda: os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+    )
+    # None uses the hosted endpoint (https://integrate.api.nvidia.com/v1);
+    # set it to reach a self-hosted NIM, e.g. http://localhost:8000/v1.
+    base_url: str | None = field(default_factory=lambda: os.environ.get("NVIDIA_BASE_URL") or None)
     max_tokens: int = 1500
     temperature: float = 0.2
     timeout: float = 90.0
 
 
-CLAUDE_CONFIG = ClaudeConfig()
+NVIDIA_CONFIG = NvidiaConfig()
 
 
 def active_llm_model() -> str:
     """Model name of the source selected by NEURALPILOT_LLM_SOURCE."""
-    return CLAUDE_CONFIG.model if LLM_SOURCE == "claude" else LLM_CONFIG.model
+    return NVIDIA_CONFIG.model if LLM_SOURCE == "nvidia" else LLM_CONFIG.model

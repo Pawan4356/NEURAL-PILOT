@@ -36,8 +36,10 @@ class StructuredFake(GenericFakeChatModel):
     """A fake chat model whose provider supports structured output."""
 
     structured_reply: dict = {}
+    structured_kwargs: dict = {}
 
     def with_structured_output(self, schema, **kwargs):
+        self.structured_kwargs.update(kwargs)
         return RunnableLambda(lambda _messages: self.structured_reply)
 
 
@@ -61,6 +63,20 @@ def test_provider_structured_output_is_used_and_validated():
     model = StructuredFake(messages=iter([]), structured_reply={"weakest_block": "preprocessing", "rationale": "r"})
     result = client_for(model).complete_json("sys", "user", ReflectionOutput)
     assert result == ReflectionOutput(weakest_block="preprocessing", rationale="r")
+
+
+def test_structured_method_is_only_passed_when_configured():
+    reply = {"weakest_block": "preprocessing", "rationale": "r"}
+
+    # NVIDIA NIM picks the method itself and warns when it is told one.
+    model = StructuredFake(messages=iter([]), structured_reply=reply, structured_kwargs={})
+    client_for(model, structured_method="none").complete_json("sys", "user", ReflectionOutput)
+    assert model.structured_kwargs == {}
+
+    # Hugging Face provider routes need to be told which one to use.
+    model = StructuredFake(messages=iter([]), structured_reply=reply, structured_kwargs={})
+    client_for(model, structured_method="function_calling").complete_json("sys", "user", ReflectionOutput)
+    assert model.structured_kwargs == {"method": "function_calling"}
 
 
 def test_falls_back_to_json_repair_when_provider_lacks_structured_output():
@@ -163,19 +179,19 @@ def test_source_selection_builds_the_matching_chat_model(monkeypatch):
     monkeypatch.setattr(config.LLM_CONFIG, "api_key", "hf_dummy_token_123456")
     assert type(build_default_chat_model()).__name__ == "ChatHuggingFace"
 
-    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
-    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", "sk-ant-dummy-123456")
+    monkeypatch.setattr(config, "LLM_SOURCE", "nvidia")
+    monkeypatch.setattr(config.NVIDIA_CONFIG, "api_key", "nvapi-dummy-123456")
     model = build_default_chat_model()
-    assert type(model).__name__ == "ChatAnthropic"
-    assert model.model == config.CLAUDE_CONFIG.model
+    assert type(model).__name__ == "ChatNVIDIA"
+    assert model.model == config.NVIDIA_CONFIG.model
 
 
-def test_claude_source_without_api_key_is_not_configured(monkeypatch):
+def test_nvidia_source_without_api_key_is_not_configured(monkeypatch):
     from neuralpilot.langchain_llm import build_default_chat_model
 
-    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
-    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", None)
-    with pytest.raises(LLMNotConfiguredError, match="ANTHROPIC_API_KEY"):
+    monkeypatch.setattr(config, "LLM_SOURCE", "nvidia")
+    monkeypatch.setattr(config.NVIDIA_CONFIG, "api_key", None)
+    with pytest.raises(LLMNotConfiguredError, match="NVIDIA_API_KEY"):
         build_default_chat_model()
 
 
@@ -186,20 +202,20 @@ def test_source_selection_rejects_unknown_and_legacy_combinations(monkeypatch):
     with pytest.raises(ValueError, match="NEURALPILOT_LLM_SOURCE"):
         llm_client.get_default_client()
 
-    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
+    monkeypatch.setattr(config, "LLM_SOURCE", "nvidia")
     monkeypatch.setattr(config, "LLM_BACKEND", "hf")
-    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", "sk-ant-dummy-123456")
+    monkeypatch.setattr(config.NVIDIA_CONFIG, "api_key", "nvapi-dummy-123456")
     llm_client._default_client = None
     with pytest.raises(ValueError, match="only supports NEURALPILOT_LLM_SOURCE=huggingface"):
         llm_client.get_default_client()
     llm_client._default_client = None
 
 
-def test_claude_overload_and_connection_errors_are_transient():
+def test_overload_and_connection_errors_are_transient():
     class APIConnectionError(Exception):
         pass
 
-    assert is_transient(HTTPStatusError(529))  # Anthropic "overloaded"
+    assert is_transient(HTTPStatusError(529))  # provider "overloaded"
     assert is_transient(APIConnectionError("dropped"))
     assert not is_transient(HTTPStatusError(401))  # bad key: fail fast
 

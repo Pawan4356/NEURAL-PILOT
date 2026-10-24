@@ -2,7 +2,7 @@
 
 Agents keep calling `complete_json(system, user, schema)`; only the
 transport changes. The provider is chosen by NEURALPILOT_LLM_SOURCE:
-Hugging Face Inference Providers (default) or the Anthropic Claude API.
+Hugging Face Inference Providers (default) or NVIDIA NIM.
 Each call:
 
 1. tries the provider's structured output (`with_structured_output`),
@@ -32,7 +32,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel, ValidationError
 
 from . import config
-from .config import ClaudeConfig, LLMConfig
+from .config import LLMConfig, NvidiaConfig
 from .llm_client import LLMJSONError, LLMNotConfiguredError, _extract_json
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 R = TypeVar("R")
 
-# 529 is Anthropic's "overloaded" status; it is retried like a rate limit.
+# 529 ("overloaded") is not a standard code but is used by some providers;
+# it is retried like a rate limit.
 _TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 _TRANSIENT_ERROR_NAMES = {
     "TimeoutError",
@@ -50,7 +51,7 @@ _TRANSIENT_ERROR_NAMES = {
     "TimeoutException",
     "ConnectError",
     "RemoteProtocolError",
-    "APIConnectionError",  # anthropic SDK; APITimeoutError subclasses it
+    "APIConnectionError",  # OpenAI-style SDKs; APITimeoutError subclasses it
 }
 
 
@@ -85,30 +86,33 @@ def build_chat_model(llm_config: LLMConfig) -> BaseChatModel:
     )
 
 
-def build_claude_chat_model(claude_config: ClaudeConfig) -> BaseChatModel:
-    """Chat model over the Anthropic Messages API, configured from the
-    ANTHROPIC_API_KEY / CLAUDE_MODEL settings."""
-    if not claude_config.api_key:
+def build_nvidia_chat_model(nvidia_config: NvidiaConfig) -> BaseChatModel:
+    """Chat model over NVIDIA NIM (OpenAI-compatible), configured from the
+    NVIDIA_API_KEY / NVIDIA_MODEL / NVIDIA_BASE_URL settings."""
+    if not nvidia_config.api_key:
         raise LLMNotConfiguredError(
-            "ANTHROPIC_API_KEY is not set. Export ANTHROPIC_API_KEY=<your Anthropic API key> "
-            "before running agents that call Claude."
+            "NVIDIA_API_KEY is not set. Export NVIDIA_API_KEY=<your NVIDIA API key> "
+            "before running agents that call NVIDIA."
         )
-    from langchain_anthropic import ChatAnthropic
+    from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
-    return ChatAnthropic(
-        model=claude_config.model,
-        api_key=claude_config.api_key,
-        max_tokens=claude_config.max_tokens,
-        temperature=claude_config.temperature,
-        timeout=claude_config.timeout,
-        max_retries=0,  # call_with_backoff owns the retries, as for Hugging Face
+    kwargs: dict[str, Any] = {}
+    if nvidia_config.base_url:
+        kwargs["base_url"] = nvidia_config.base_url
+    return ChatNVIDIA(
+        model=nvidia_config.model,
+        api_key=nvidia_config.api_key,
+        max_completion_tokens=nvidia_config.max_tokens,
+        temperature=nvidia_config.temperature,
+        timeout=nvidia_config.timeout,
+        **kwargs,
     )
 
 
 def build_default_chat_model() -> BaseChatModel:
     """The chat model for the provider chosen by NEURALPILOT_LLM_SOURCE."""
-    if config.LLM_SOURCE == "claude":
-        return build_claude_chat_model(config.CLAUDE_CONFIG)
+    if config.LLM_SOURCE == "nvidia":
+        return build_nvidia_chat_model(config.NVIDIA_CONFIG)
     return build_chat_model(config.LLM_CONFIG)
 
 
@@ -194,6 +198,13 @@ class LangChainLLMClient:
                 return result
         return self._complete_with_repair(messages, schema, max_retries)
 
+    def _structured_kwargs(self) -> dict[str, str]:
+        """`method` is only passed when a provider needs to be told. NVIDIA NIM
+        chooses it from the schema and warns when it is passed one."""
+        if self.structured_method in ("", "none", "auto"):
+            return {}
+        return {"method": self.structured_method}
+
     def _invoke(self, runnable: Any, messages: list[BaseMessage]) -> Any:
         return call_with_backoff(
             lambda: runnable.invoke(messages),
@@ -209,7 +220,7 @@ class LangChainLLMClient:
             # rejects Pydantic classes for function calling. The reply is
             # validated against the Pydantic model below either way.
             structured = self.chat_model.with_structured_output(
-                schema.model_json_schema(), method=self.structured_method
+                schema.model_json_schema(), **self._structured_kwargs()
             )
             result = self._invoke(structured, messages)
             if result is None:

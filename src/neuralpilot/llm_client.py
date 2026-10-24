@@ -4,7 +4,7 @@ The default transport is now LangChain (`langchain_llm.LangChainLLMClient`);
 `HFLLMClient` below wraps Hugging Face Inference Providers directly
 (OpenAI-compatible chat completions) with structured-JSON extraction +
 retry, and stays available via NEURALPILOT_LLM_BACKEND=hf. The provider
-behind the LangChain transport is Hugging Face or Claude (NEURALPILOT_LLM_SOURCE).
+behind the LangChain transport is Hugging Face or NVIDIA (NEURALPILOT_LLM_SOURCE).
 
 The four agents (§3) never write or execute code — they only produce
 structured JSON that this client validates against a pydantic schema
@@ -112,7 +112,7 @@ _default_client: LLMClient | None = None
 
 def get_default_client() -> LLMClient:
     """The process-wide client, built on first use. NEURALPILOT_LLM_SOURCE
-    picks the provider: "huggingface" (default) or "claude". NEURALPILOT_LLM_BACKEND
+    picks the provider: "huggingface" (default) or "nvidia". NEURALPILOT_LLM_BACKEND
     picks the transport: "langchain" (default) or "hf" (legacy rollback, Hugging Face only)."""
     global _default_client
     if _default_client is None:
@@ -120,13 +120,13 @@ def get_default_client() -> LLMClient:
 
         if config.LLM_SOURCE not in config.LLM_SOURCES:
             raise ValueError(
-                f"Unknown NEURALPILOT_LLM_SOURCE '{config.LLM_SOURCE}'; use 'huggingface' or 'claude'."
+                f"Unknown NEURALPILOT_LLM_SOURCE '{config.LLM_SOURCE}'; use 'huggingface' or 'nvidia'."
             )
         if config.LLM_BACKEND == "hf":
             if config.LLM_SOURCE != "huggingface":
                 raise ValueError(
                     "NEURALPILOT_LLM_BACKEND=hf only supports NEURALPILOT_LLM_SOURCE=huggingface; "
-                    "use the default 'langchain' backend for claude."
+                    "use the default 'langchain' backend for nvidia."
                 )
             _default_client = HFLLMClient()
         elif config.LLM_BACKEND == "langchain":

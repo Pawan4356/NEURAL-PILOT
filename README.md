@@ -29,8 +29,8 @@ Only one clarification can be asked during a run, and only when the target-colum
 
 Install [uv](https://docs.astral.sh/uv/) and use Python supported by the project configuration.
 The four agents call an LLM through [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers)
-by default, or through the [Anthropic Claude API](https://docs.anthropic.com) when `NEURALPILOT_LLM_SOURCE=claude`.
-A Hugging Face token (or an Anthropic API key for Claude) is required for interactive runs. The test suite does not need a
+by default, or through [NVIDIA NIM](https://build.nvidia.com) when `NEURALPILOT_LLM_SOURCE=nvidia`.
+A Hugging Face token (or an NVIDIA API key for NVIDIA) is required for interactive runs. The test suite does not need a
 network connection or an API key.
 
 ## Commands
@@ -41,20 +41,21 @@ All common setup, startup, debugging, and verification commands are collected he
 # First-time setup: run from the project directory.
 uv sync
 
-# Configure the LLM. Loading .env is convenient when the project has one.
-set -a
-source .env
-set +a
+# Configure the LLM. The project's .env is loaded automatically on startup,
+# so editing it is enough; real environment variables always take precedence.
+# Set NEURALPILOT_DOTENV=off to ignore the file.
 
-# Or configure the variables directly instead of loading .env.
+# Or configure the variables directly instead of using .env.
 export HF_TOKEN=hf_...
 export HF_MODEL="meta-llama/Llama-3.3-70B-Instruct"  # default
 export HF_PROVIDER="auto"                              # default
 
-# Or switch the source to Claude. The agents then use ANTHROPIC_API_KEY instead of HF_TOKEN.
-export NEURALPILOT_LLM_SOURCE=claude                   # default: huggingface
-export ANTHROPIC_API_KEY=sk-ant-...
-export CLAUDE_MODEL="claude-sonnet-5-5"                # default
+# Or switch the source to NVIDIA. The agents then use NVIDIA_API_KEY instead of HF_TOKEN.
+export NEURALPILOT_LLM_SOURCE=nvidia                   # default: huggingface
+export NVIDIA_API_KEY=nvapi-...
+export NVIDIA_MODEL="meta/llama-3.3-70b-instruct"      # default
+# Optional: point at a self-hosted NIM instead of the hosted endpoint.
+export NVIDIA_BASE_URL="http://localhost:8000/v1"
 
 # Normal startup.
 uv run neuralpilot
@@ -81,13 +82,15 @@ uv run pytest
 | `HF_TOKEN` | None | Hugging Face access token; required for agent calls |
 | `HF_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Hugging Face model |
 | `HF_PROVIDER` | `auto` | Hugging Face inference provider |
-| `NEURALPILOT_LLM_SOURCE` | `huggingface` | Provider the agents call: `huggingface` or `claude` |
-| `ANTHROPIC_API_KEY` | None | Anthropic API key; required when `NEURALPILOT_LLM_SOURCE=claude` |
-| `CLAUDE_MODEL` | `claude-haiku-5-5` | Claude model used when `NEURALPILOT_LLM_SOURCE=claude` |
+| `NEURALPILOT_LLM_SOURCE` | `huggingface` | Provider the agents call: `huggingface` or `nvidia` |
+| `NVIDIA_API_KEY` | None | NVIDIA API key (`nvapi-...`); required when `NEURALPILOT_LLM_SOURCE=nvidia` |
+| `NVIDIA_MODEL` | `meta/llama-3.3-70b-instruct` | NVIDIA NIM model used when `NEURALPILOT_LLM_SOURCE=nvidia` |
+| `NVIDIA_BASE_URL` | None | Self-hosted NIM endpoint; blank uses `https://integrate.api.nvidia.com/v1` |
 | `NEURALPILOT_LLM_BACKEND` | `langchain` | `langchain` (LangChain chat model) or `hf` (original client, rollback only; Hugging Face only) |
 | `NEURALPILOT_LLM_STRUCTURED_OUTPUT` | `auto` | `auto` tries the provider's structured output and falls back to JSON repair; `on` or `off` |
-| `NEURALPILOT_LLM_STRUCTURED_METHOD` | `function_calling` | How structure is requested: `function_calling` or `json_schema` |
+| `NEURALPILOT_LLM_STRUCTURED_METHOD` | per source | How structure is requested: `function_calling`, `json_schema`, or `none` (provider decides). Defaults to `function_calling` for `huggingface` and `none` for `nvidia` |
 | `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | `false` / None / `neuralpilot-dev` | Optional LangSmith tracing; payloads are redacted before they are sent |
+| `NEURALPILOT_DOTENV` | `on` | `off` ignores the project's `.env`; variables already in the environment always win |
 | `NEURALPILOT_HOST` | `127.0.0.1` | Web server host |
 | `NEURALPILOT_PORT` | `8000` | Web server port |
 | `NEURALPILOT_MAX_ITERATIONS` | `5` | Maximum refinement iterations |
@@ -175,7 +178,7 @@ src/neuralpilot/
   plateau.py        deterministic plateau detection
   repository.py     SQLite experiment log and nearest-neighbor retrieval
   llm_client.py     LLMClient protocol, original Hugging Face client, default-client selection
-  langchain_llm.py  LangChain client (Hugging Face or Claude): structured output, JSON repair, transport backoff
+  langchain_llm.py  LangChain client (Hugging Face or NVIDIA): structured output, JSON repair, transport backoff
   observability.py  LangSmith tracing setup and payload redaction
   selection.py      best-attempt rule and deterministic next-untried-plan fallback
   reporting.py      final report and experiment records built from graph state
