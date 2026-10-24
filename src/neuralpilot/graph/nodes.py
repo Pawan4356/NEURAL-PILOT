@@ -7,17 +7,23 @@ deterministic. The `clarify` node pauses the graph with `interrupt()`; on
 resume LangGraph re-runs it from the top, so nothing before the
 `interrupt()` call may have side effects.
 
+Within an iteration, `resolve_plan` turns the planner's plan into registry
+components and builds the challengers; `execute` measures every candidate
+and keeps the best. The planner's plan is the one that is reflected on.
+
 Errors are not caught here: `build.py` wraps every node so an exception is
 recorded in state and routed to `fail`.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict
 
 from langgraph.runtime import Runtime
 from langgraph.types import interrupt
+from pydantic import ValidationError
 
 from .. import config, reporting
 from ..agents.decision_agent import decide as decision_agent
@@ -30,18 +36,33 @@ from ..agents.requirement_agent import (
     needs_clarification,
     understand_requirement,
 )
+from ..candidates import build_candidates
 from ..engine import AttemptBudget, plan_signature, run_attempt
 from ..engine.explainability import shap_summary
-from ..engine.runner import holdout_evaluate
+from ..engine.runner import AttemptOutcome, holdout_evaluate
 from ..meta_features import DatasetMetaFeatures, extract_meta_features
+from ..plan_resolution import PlanProfile, PlanRejection, resolve
 from ..repository import SimilarExperiment
-from ..schemas import AttemptSummary, BestAttempt, DecisionOutput, IterationLog
+from ..schemas import (
+    AttemptSummary,
+    BestAttempt,
+    CandidatePlan,
+    DecisionOutput,
+    IterationLog,
+    PlanSpec,
+    RequirementSpec,
+    ValidationReport,
+)
 from ..scoring import compute_validation, should_generate_shap
 from ..selection import is_better, next_untried_plan, plan_summary
+from ..validation import evaluate_attempt, requires_glass_box
+from ..validation.constraints import violated_names
 from ..verification import verify_plan
 from . import resources
 from .context import RunContext
 from .state import NPState, plan_reset
+
+logger = logging.getLogger(__name__)
 
 
 # --- helpers -----------------------------------------------------------------
@@ -73,6 +94,46 @@ def _similar_experiments(state: NPState, ctx: RunContext) -> list[SimilarExperim
         if record is not None:
             similar.append(SimilarExperiment(record, item["similarity"]))
     return similar
+
+
+def _plan_profile(state: NPState) -> PlanProfile:
+    """What plan resolution needs to know about the dataset and the task."""
+    requirement = state["requirement"]
+    summary = state.get("data_summary") or {}
+    return PlanProfile(
+        problem_type=requirement.problem_type,
+        n_rows=int(summary.get("n_train", summary.get("n_rows", 0))),
+        categorical_cardinality=state.get("categorical_cardinality"),
+        glass_box=requires_glass_box(requirement.constraints),
+    )
+
+
+def _memory_evidence(similar: list[SimilarExperiment]) -> dict[str, float]:
+    """Best final score of each model family among similar past runs."""
+    evidence: dict[str, float] = {}
+    for item in similar:
+        family = item.record.plan.get("model_family")
+        score = item.record.final_composite_score
+        if family and score is not None:
+            evidence[family] = max(score, evidence.get(family, score))
+    return evidence
+
+
+def _memory_plans(similar: list[SimilarExperiment]) -> list[PlanSpec]:
+    """Plans of similar past runs, as warm-start proposals. Records that do not
+    parse against the current schema are skipped rather than failing the run."""
+    plans = []
+    for item in similar:
+        try:
+            plans.append(PlanSpec.model_validate(item.record.plan))
+        except ValidationError:
+            continue
+    return plans
+
+
+def _input_columns(prepared) -> dict[str, str]:
+    """Column names and types for the saved model's signature (no values)."""
+    return {c: "string" if c in prepared.categorical_cols else "double" for c in prepared.X.columns}
 
 
 def _ask_for_target(spec, columns: list[str], reason: str) -> dict:
@@ -139,18 +200,29 @@ def clarify(state: NPState, runtime: Runtime[RunContext]) -> dict:
 
 
 def prepare(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    """Profile columns, fix the split, scan for leakage — once per run."""
+    """Profile columns, fix the split, scan for leakage, open the tracking
+    parent run — once per run."""
     ctx = runtime.context
     ctx.report("Profiling columns and checking for leakage", "execute")
     prepared = resources.prepared_data(state)
     df = resources.dataframe(state)
-    meta_features = extract_meta_features(df, target_column=state["requirement"].target_column)
+    requirement = state["requirement"]
+    meta_features = extract_meta_features(df, target_column=requirement.target_column)
+    parent_run = ctx.tracker.start_parent(
+        state["run_id"],
+        tags={
+            "neuralpilot.dataset": state["dataset_name"],
+            "neuralpilot.problem_type": requirement.problem_type,
+            "neuralpilot.target": requirement.target_column,
+        },
+    )
     return {
         "data_summary": prepared.summary(),
         "data_notes": list(prepared.notes),
         "categorical_cardinality": prepared.categorical_cardinality(),
         "meta_features": asdict(meta_features),
         "budget_started_at": state.get("budget_started_at") or time.time(),
+        "mlflow_run_id": parent_run,
     }
 
 
@@ -205,21 +277,26 @@ def plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
             "excluded_columns": data_summary["excluded_columns"],
             "balanced_class_weights": data_summary["balanced_class_weights"],
         },
+        unsupported=list(state.get("unsupported_recommendations") or []),
     )
     return {"candidate_plan": candidate, "plan_attempt": attempt}
 
 
 def resolve_plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    """Verify the candidate and reject repeats of executed plans (audit G3).
+    """Verify the candidate, map its components onto the registry, and reject
+    repeats of executed plans (audit G3).
 
-    A plan that fails verification is sent back to the planner with the
-    reason. A repeat is sent back once with an explicit rejection; after
-    that (or when the attempts run out) the next untried registry variant
-    is used instead."""
+    A plan that fails verification or cannot be resolved is sent back to the
+    planner with the reason. A repeat is sent back once with an explicit
+    rejection; after that (or when the attempts run out) the next untried
+    registry variant is used instead. An accepted plan also gets its
+    challengers built here (Phase 4)."""
+    ctx = runtime.context
     candidate = state["candidate_plan"]
     requirement = state["requirement"]
     attempt = state.get("plan_attempt", 1)
     last_attempt = attempt >= config.MAX_PLAN_ATTEMPTS
+    iteration = state.get("iteration", 0) + 1
     df = resources.dataframe(state)
 
     verification = verify_plan(candidate, requirement, df)
@@ -232,58 +309,176 @@ def resolve_plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
             )
         return update
 
+    similar = _similar_experiments(state, ctx)
+    resolution = resolve(
+        candidate,
+        _plan_profile(state),
+        iteration=iteration,
+        source="planner",
+        prior_evidence=_memory_evidence(similar),
+    )
+    substitutions = list(resolution.substitutions)
+    if isinstance(resolution, PlanRejection):
+        failure = resolution.reason
+        update = {
+            "failed_plan": candidate,
+            "verification_failure": failure,
+            "unsupported_recommendations": substitutions,
+        }
+        if last_attempt:
+            update["error"] = f"Plan could not be resolved after {config.MAX_PLAN_ATTEMPTS} attempts: {failure}"
+        return update
+    resolved = resolution.plan
+
     cardinality = state.get("categorical_cardinality")
     tried = {a.signature for a in state.get("attempts") or []}
-    signature = plan_signature(candidate, categorical_cardinality=cardinality)
-    base = {"failed_plan": None, "verification_failure": None, "verification_warnings": verification.warnings}
+    signature = plan_signature(resolved, categorical_cardinality=cardinality)
+    base = {
+        "failed_plan": None,
+        "verification_failure": None,
+        "verification_warnings": verification.warnings,
+        "unsupported_recommendations": substitutions,
+    }
     if signature not in tried:
-        return {**base, "plan": candidate, "plan_source": "planner"}
+        return {**base, **_accepted(resolved, "planner", state, similar, tried, iteration)}
 
     duplicate_rejections = state.get("duplicate_rejections", 0)
     if duplicate_rejections >= 1 or last_attempt:
-        fallback = next_untried_plan(candidate, requirement, tried, cardinality)
+        fallback = next_untried_plan(resolved, requirement, tried, cardinality)
         if fallback is None:
             return {**base, **forced_stop(state, "Guardrail: every registry configuration has already been tried.")}
-        return {**base, "plan": fallback, "plan_source": "deterministic_fallback"}
+        return {**base, **_accepted(fallback, "deterministic_fallback", state, similar, tried, iteration)}
     return {
         **base,
         "duplicate_rejections": duplicate_rejections + 1,
         "plan_rejection": (
-            f"plan signature {signature} ({candidate.model_family}) was already executed in this run. "
+            f"plan signature {signature} ({resolved.model_family}) was already executed in this run. "
             f"Propose a configuration that is not in the 'Already tried' list."
         ),
     }
 
 
+def _accepted(
+    plan: PlanSpec,
+    source: str,
+    state: NPState,
+    similar: list[SimilarExperiment],
+    tried: set[str],
+    iteration: int,
+) -> dict:
+    """The plan to execute, plus the challengers that will run beside it."""
+    candidates, substitutions = build_candidates(
+        plan,
+        _plan_profile(state),
+        iteration=iteration,
+        tried=tried,
+        memory_plans=_memory_plans(similar),
+        prior_evidence=_memory_evidence(similar),
+    )
+    return {
+        "plan": plan,
+        "plan_source": source,
+        "candidates": candidates,
+        "unsupported_recommendations": substitutions,
+    }
+
+
 def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    """Run one attempt (CV on the training split only), score it, and keep
-    it if it is the best so far.
+    """Measure every candidate of this iteration (CV on the training split
+    only) and keep the best one so far.
+
+    The planner's plan is always measured first and is the one that is
+    reflected on. Challengers share the iteration's trial cap and timeout,
+    are skipped when the budget is nearly used, and a failing challenger is
+    recorded rather than failing the run.
 
     Scoring lives here rather than in a separate node because the fitted
     pipeline cannot be stored in graph state: it has to be kept (or
     dropped) in the same step that produced it."""
     ctx = runtime.context
-    plan_spec = state["plan"]
     requirement = state["requirement"]
     iteration = state.get("iteration", 0) + 1
-    ctx.report(f"Training and evaluating {plan_spec.model_family}")
-
+    cardinality = state.get("categorical_cardinality")
+    candidates = state.get("candidates") or [CandidatePlan(source="planner", plan=state["plan"])]
     prepared = resources.prepared_data(state)
-    budget = AttemptBudget(
-        max_trials=config.HPO_MAX_TRIALS,
-        hpo_timeout_s=max(1.0, min(config.HPO_TIMEOUT_S, budget_left_s(state) * 0.8)),
+
+    share = len(candidates)
+    trials_each = max(config.HPO_MAX_TRIALS // share, config.MIN_TRIALS_PER_CANDIDATE)
+    timeout_each = max(1.0, min(config.HPO_TIMEOUT_S, budget_left_s(state) * 0.8)) / share
+
+    best = state.get("best")
+    best_summary = best.summary if best else None
+    update: dict = {}
+    attempts: list[AttemptSummary] = []
+    log: list[dict] = []
+    planner_result = None
+
+    for index, candidate in enumerate(candidates):
+        signature = plan_signature(candidate.plan, categorical_cardinality=cardinality)
+        if index > 0:
+            skip_reason = _challenger_skip_reason(state, ctx)
+            if skip_reason:
+                log.append(_candidate_entry(candidate, signature, "skipped", reason=skip_reason))
+                continue
+        label = candidate.plan.model_family if index == 0 else f"{candidate.plan.model_family} (challenger)"
+        ctx.report(f"Training and evaluating {label}")
+        try:
+            outcome = run_attempt(
+                candidate.plan,
+                prepared,
+                budget=AttemptBudget(max_trials=trials_each, hpo_timeout_s=timeout_each),
+                progress_callback=lambda task: ctx.report(task, "execute"),
+                cancel_event=ctx.cancel_event,
+                tracker=ctx.tracker,
+                tracking_tags={
+                    "neuralpilot.iteration": str(iteration),
+                    "neuralpilot.candidate_source": candidate.source,
+                },
+            )
+        except Exception as exc:
+            if index == 0:
+                raise
+            logger.warning("run=%s challenger %s failed", state["run_id"], candidate.plan.model_family, exc_info=True)
+            log.append(_candidate_entry(candidate, signature, "failed", reason=str(exc) or type(exc).__name__))
+            continue
+
+        validation, summary = _score(outcome, candidate, iteration, requirement)
+        attempts.append(summary)
+        log.append(_candidate_entry(candidate, signature, "ok", summary=summary))
+        if index == 0:
+            planner_result = (outcome.result, validation, summary)
+        if is_better(summary, best_summary, outcome.result.attempt.split.n_folds):
+            resources.keep_best_pipeline(state["run_id"], outcome.pipeline)
+            best = BestAttempt(
+                iteration=iteration,
+                plan=candidate.plan,
+                summary=summary,
+                validation=validation,
+                attempt=outcome.result.attempt,
+            )
+            best_summary = summary
+            update["best"] = best
+
+    execution, validation, summary = planner_result
+    update.update(
+        {
+            "last_execution": execution,
+            "last_validation": validation,
+            "last_summary": summary,
+            "attempts": attempts,
+            "score_history": [validation.composite_score],
+            "iteration_candidates": log,
+        }
     )
-    outcome = run_attempt(
-        plan_spec,
-        prepared,
-        budget=budget,
-        progress_callback=lambda task: ctx.report(task, "execute"),
-        cancel_event=ctx.cancel_event,
-    )
+    return update
+
+
+def _score(
+    outcome: AttemptOutcome, candidate: CandidatePlan, iteration: int, requirement: RequirementSpec
+) -> tuple[ValidationReport, AttemptSummary]:
+    """Composite score, constraint checks and the compact attempt record."""
     execution = outcome.result
     attempt = execution.attempt
-
-    ctx.report("Computing validation score")
     validation = compute_validation(
         raw_metrics=execution.metrics,
         latency_ms_per_1k=attempt.resources.latency_ms_per_1k,
@@ -293,6 +488,8 @@ def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
         per_block_diagnostics=execution.diagnostics,
         primary_metric=attempt.primary_metric,
     )
+    validation = evaluate_attempt(validation, attempt, requirement)
+    plan_spec = candidate.plan
     summary = AttemptSummary(
         signature=outcome.signature,
         iteration=iteration,
@@ -304,21 +501,42 @@ def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
         cv_mean=attempt.cv_score,
         cv_std=attempt.cv[attempt.primary_metric].std,
         composite_score=validation.composite_score,
+        source=candidate.source,
+        latency_ms_per_1k=attempt.resources.latency_ms_per_1k,
+        interp_norm=validation.interp_norm,
+        feasible=validation.feasible,
+        constraint_results=validation.constraint_results,
     )
+    return validation, summary
 
-    update: dict = {
-        "last_execution": execution,
-        "last_validation": validation,
-        "attempts": [summary],
-        "score_history": [validation.composite_score],
+
+def _challenger_skip_reason(state: NPState, ctx: RunContext) -> str | None:
+    if ctx.cancelled():
+        return "run cancelled"
+    if budget_left_s(state) < config.CHALLENGER_MIN_BUDGET_S:
+        return "compute budget nearly used"
+    return None
+
+
+def _candidate_entry(
+    candidate: CandidatePlan,
+    signature: str,
+    status: str,
+    *,
+    summary: AttemptSummary | None = None,
+    reason: str | None = None,
+) -> dict:
+    """One row of the iteration's candidate log (Deliverable 8.5)."""
+    return {
+        "signature": signature,
+        "model_family": candidate.plan.model_family,
+        "source": candidate.source,
+        "status": status,
+        "cv_mean": summary.cv_mean if summary else None,
+        "cv_std": summary.cv_std if summary else None,
+        "feasible": summary.feasible if summary else None,
+        "reason": reason,
     }
-    current_best = state.get("best")
-    if is_better(summary, current_best.summary if current_best else None, attempt.split.n_folds):
-        resources.keep_best_pipeline(state["run_id"], outcome.pipeline)
-        update["best"] = BestAttempt(
-            iteration=iteration, plan=plan_spec, summary=summary, validation=validation, attempt=attempt
-        )
-    return update
 
 
 def reflect(state: NPState, runtime: Runtime[RunContext]) -> dict:
@@ -329,7 +547,8 @@ def reflect(state: NPState, runtime: Runtime[RunContext]) -> dict:
 
 def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
     """accept / refine / replan / stop. Guardrails (budget, iteration cap,
-    plateau, cancellation) force "stop" without asking the LLM."""
+    plateau, cancellation, unmet hard constraints) force the outcome without
+    the LLM having the last word."""
     ctx = runtime.context
     ctx.report("Choosing whether to refine, replan, or finish")
     iteration = state.get("iteration", 0) + 1
@@ -337,7 +556,7 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
     reflection = state["reflection"]
     execution = state["last_execution"]
     attempt = execution.attempt
-    summary = state["attempts"][-1]
+    summary = state["last_summary"]
 
     if ctx.cancelled():
         decision = DecisionOutput(decision="stop", rationale="Run cancelled by user.", forced=True)
@@ -352,6 +571,7 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
             budget_exhausted=budget_left_s(state) <= 0,
             client=ctx.llm,
         )
+        decision = _keep_searching_while_infeasible(decision, state, iteration)
 
     log = IterationLog(
         iteration=iteration,
@@ -373,6 +593,7 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
         latency_ms_per_1k=attempt.resources.latency_ms_per_1k,
         decision_forced=decision.forced,
         plan_adjustments=list(execution.plan_adjustments),
+        candidates=list(state.get("iteration_candidates") or []),
     )
     return {
         "iteration": iteration,
@@ -382,6 +603,23 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
         "last_reflection": reflection if decision.decision == "refine" else None,
         "replan_requested": decision.decision == "replan",
     }
+
+
+def _keep_searching_while_infeasible(decision: DecisionOutput, state: NPState, iteration: int) -> DecisionOutput:
+    """Accepting a model that misses a hard constraint would finish the run
+    with a model the user cannot use. While iterations and budget remain,
+    the run refines instead (Phase 5)."""
+    best = state.get("best")
+    if decision.decision != "accept" or best is None or best.validation.feasible:
+        return decision
+    if iteration >= state.get("max_iterations", config.MAX_ITERATIONS) or budget_left_s(state) <= 0:
+        return decision
+    missed = ", ".join(violated_names(best.validation.constraint_results))
+    return DecisionOutput(
+        decision="refine",
+        rationale=f"Guardrail: the best attempt misses hard constraints ({missed}), so the run keeps searching.",
+        forced=True,
+    )
 
 
 # --- end of run --------------------------------------------------------------
@@ -413,6 +651,12 @@ def finalize(state: NPState, runtime: Runtime[RunContext]) -> dict:
         shap_summary=shap,
         reproducibility=reporting.reproducibility_block(state),
     )
+    ctx.tracker.log_final(
+        pipeline=pipeline,
+        input_columns=_input_columns(prepared),
+        holdout=holdout_metrics,
+        report=report,
+    )
     return {
         "holdout_evaluations": state.get("holdout_evaluations", 0) + 1,
         "model_path": model_path,
@@ -423,9 +667,12 @@ def finalize(state: NPState, runtime: Runtime[RunContext]) -> dict:
 
 def persist(state: NPState, runtime: Runtime[RunContext]) -> dict:
     """Write the finalized run to experiment memory."""
+    ctx = runtime.context
     df = resources.dataframe(state)
     meta_features = extract_meta_features(df, state["requirement"].target_column).to_dict()
-    runtime.context.repo.save_run(reporting.finalized_record(state, meta_features))
+    ctx.repo.save_run(reporting.finalized_record(state, meta_features))
+    ctx.repo.save_unsupported(state["run_id"], list(state.get("unsupported_recommendations") or []))
+    ctx.tracker.end("finalized")
     resources.release_run(state["run_id"])
     return {"status": "finalized"}
 
@@ -446,5 +693,7 @@ def fail(state: NPState, runtime: Runtime[RunContext]) -> dict:
     except Exception:
         pass
     ctx.repo.save_run(reporting.failed_record(failed_state, meta_features))
+    ctx.repo.save_unsupported(state["run_id"], list(state.get("unsupported_recommendations") or []))
+    ctx.tracker.end("failed")
     resources.release_run(state["run_id"])
     return {"status": "failed", "error": error}

@@ -214,3 +214,44 @@ def test_old_database_is_migrated_in_place(tmp_path):
         assert repo.retrieve_similar_experiments(_query(CHURN), k=1)[0].record.run_id == "r1"
     finally:
         repo.close()
+
+
+def test_mlflow_run_id_and_unsupported_recommendations_round_trip(repo):
+    from neuralpilot.schemas import UnsupportedRecommendation
+
+    record = ExperimentRecord.new(
+        run_id="run-1",
+        dataset_name="d.csv",
+        problem_type="classification",
+        target_column="y",
+        meta_features={},
+        plan={},
+        scores=[],
+        weakest_block_history=[],
+        final_decision="accept",
+        final_composite_score=0.5,
+        status="finalized",
+        mlflow_run_id="abc123",
+    )
+    repo.save_run(record)
+    assert repo.get_run("run-1").mlflow_run_id == "abc123"
+
+    rows = [
+        UnsupportedRecommendation(
+            iteration=1,
+            requested="XYZEncoder",
+            category="encoder",
+            source="planner",
+            reason="not_in_registry",
+            alternative_used="OneHotEncoder",
+            semantic_change=False,
+            context={"n_rows": 10},
+        )
+    ]
+    repo.save_unsupported("run-1", rows)
+    repo.save_unsupported("run-1", rows)  # saving again replaces, it does not duplicate
+    [stored] = repo.unsupported_for_run("run-1")
+    assert stored["requested"] == "XYZEncoder"
+    assert stored["alternative_used"] == "OneHotEncoder"
+    assert stored["semantic_change"] is False
+    assert stored["context"] == {"n_rows": 10}

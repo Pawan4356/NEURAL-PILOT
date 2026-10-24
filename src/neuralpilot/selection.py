@@ -24,10 +24,14 @@ INTERPRETABLE_MODEL_ORDER = ["LinearModel", "DecisionTree", "RandomForest", "Gra
 
 
 def is_better(new: AttemptSummary, best: AttemptSummary | None, n_folds: int) -> bool:
-    """Primary-metric CV mean decides; attempts within one standard error of
-    each other are separated by the composite score (user priorities)."""
+    """A feasible attempt beats an infeasible one whatever its metric (Phase 5).
+    Among equally feasible attempts, the primary-metric CV mean decides;
+    attempts within one standard error of each other are separated by the
+    composite score (user priorities)."""
     if best is None:
         return True
+    if new.feasible != best.feasible:
+        return new.feasible
     sign = 1.0 if greater_is_better(new.primary_metric) else -1.0
     diff = sign * (new.cv_mean - best.cv_mean)
     standard_error = max(new.cv_std, best.cv_std) / math.sqrt(max(n_folds, 1))

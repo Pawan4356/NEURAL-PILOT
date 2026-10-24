@@ -44,7 +44,11 @@ INTERPRETABILITY_TABLE = {
     "xgboost": 0.4, # Powerful ensemble; less directly interpretable
     "catboost": 0.4, # Similar ensemble complexity
     "deep": 0.1, # Many parameters/layers; difficult to directly explain
+    "hist_gbm": 0.6, # Same family as GradientBoosting, binned features
+    "extra_trees": 0.6, # Randomised forest; same explanation burden as random_forest
 }
+# Interpretability classes that count as "glass box" for a hard constraint.
+GLASS_BOX_CLASSES = ("linear", "tree")
 
 # --- Plateau detection (§4.5) ---
 PLATEAU_SCORE_DELTA_PCT = 2.0
@@ -103,6 +107,23 @@ MODELS_DIR = RUNS_DIR / "models"
 MAX_PLAN_ATTEMPTS = 3  # plan -> verify -> dedupe tries per iteration
 MAX_CLARIFICATION_ROUNDS = 2
 
+# --- Candidate plans per iteration (Phase 4, Deliverable 8.3-8.4) ---
+# The planner's plan plus up to MAX_CANDIDATES - 1 deterministic challengers.
+# The iteration's HPO trial cap and timeout are shared between them.
+MAX_CANDIDATES = _env_int("NEURALPILOT_MAX_CANDIDATES", 3)
+MIN_TRIALS_PER_CANDIDATE = 5
+# Profile rules for generated challengers.
+HIST_GB_MIN_ROWS = 50_000  # large data: histogram-based boosting is much faster
+SMALL_DATA_ROWS = 5_000  # small data: randomised forests are a cheap, strong check
+# Share of a candidate's budget needed before a challenger is started.
+CHALLENGER_MIN_BUDGET_S = 30.0
+
+# --- Experiment tracking (Phase 6, Deliverable 9.1) ---
+MLFLOW_ENABLED = os.environ.get("NEURALPILOT_MLFLOW", "on").strip().lower() in ("on", "1", "true")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{RUNS_DIR / 'mlflow.db'}")
+MLFLOW_ARTIFACT_ROOT = os.environ.get("NEURALPILOT_MLFLOW_ARTIFACTS", str(RUNS_DIR / "mlartifacts"))
+MLFLOW_EXPERIMENT = "neuralpilot"
+
 # --- LLM transport (Phase 2) ---
 # "langchain" routes calls through a LangChain chat model; "hf" is the
 # original huggingface_hub client, kept as a rollback.
@@ -116,6 +137,12 @@ LLM_STRUCTURED_METHOD = os.environ.get("NEURALPILOT_LLM_STRUCTURED_METHOD", "fun
 LLM_TRANSPORT_RETRIES = _env_int("NEURALPILOT_LLM_TRANSPORT_RETRIES", 3)
 LLM_BACKOFF_BASE_S = 1.0
 LLM_BACKOFF_MAX_S = 20.0
+
+
+# --- LLM source: which provider the agents call ---
+# "huggingface" (default) uses HF Inference Providers; "claude" uses the Anthropic API.
+LLM_SOURCE = os.environ.get("NEURALPILOT_LLM_SOURCE", "huggingface").strip().lower()
+LLM_SOURCES = ("huggingface", "claude")
 
 
 # --- LLM client (Hugging Face Inference Providers, OpenAI-compatible) ---
@@ -134,3 +161,21 @@ class LLMConfig:
 
 
 LLM_CONFIG = LLMConfig()
+
+
+# --- LLM client (Anthropic Claude API), used when NEURALPILOT_LLM_SOURCE=claude ---
+@dataclass
+class ClaudeConfig:
+    api_key: str | None = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY"))
+    model: str = field(default_factory=lambda: os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5"))
+    max_tokens: int = 1500
+    temperature: float = 0.2
+    timeout: float = 90.0
+
+
+CLAUDE_CONFIG = ClaudeConfig()
+
+
+def active_llm_model() -> str:
+    """Model name of the source selected by NEURALPILOT_LLM_SOURCE."""
+    return CLAUDE_CONFIG.model if LLM_SOURCE == "claude" else LLM_CONFIG.model

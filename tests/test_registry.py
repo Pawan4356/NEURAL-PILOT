@@ -8,19 +8,19 @@ def test_known_component_resolves_without_fallback():
 
 
 def test_unknown_encoder_falls_back_by_cardinality_low():
-    spec, fallback = resolve_component("encoder", "TargetEncoder", categorical_cardinality=5)
+    spec, fallback = resolve_component("encoder", "MysteryEncoder", categorical_cardinality=5)
     assert spec.name == "OrdinalEncoder"
     assert fallback is not None
     assert fallback.to_dict() == {
         "category": "encoder",
-        "requested": "TargetEncoder",
+        "requested": "MysteryEncoder",
         "used": "OrdinalEncoder",
         "reason": "unsupported",
     }
 
 
 def test_unknown_encoder_falls_back_by_cardinality_high():
-    spec, fallback = resolve_component("encoder", "TargetEncoder", categorical_cardinality=50)
+    spec, fallback = resolve_component("encoder", "MysteryEncoder", categorical_cardinality=50)
     assert spec.name == "OneHotEncoder"
     assert fallback.used == "OneHotEncoder"
 

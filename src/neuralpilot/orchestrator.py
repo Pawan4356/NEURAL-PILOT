@@ -36,6 +36,7 @@ from langgraph.types import Command
 from . import config, observability, provenance, reporting
 from .agents.requirement_agent import apply_clarification_answer
 from .engine import load_dataset
+from .engine.tracking import make_tracker
 from .graph import RunContext, compiled_graph, resources
 from .graph.routing import recursion_limit
 from .llm_client import LLMClient
@@ -128,6 +129,7 @@ def run_to_completion(
         on_progress=functools.partial(_on_progress, state),
         llm=llm,
         run_id=state.run_id,
+        tracker=make_tracker(_mlflow_parent(graph, graph_config)),
     )
     try:
         should_run, graph_input = _next_input(graph, graph_config, state)
@@ -151,6 +153,13 @@ def run_to_completion(
 # --- graph plumbing ----------------------------------------------------------
 
 
+def _mlflow_parent(graph, graph_config: dict) -> str | None:
+    """The MLflow parent run of an earlier invocation of this run, if any,
+    so a resumed run keeps logging into the same parent."""
+    values = graph.get_state(graph_config).values
+    return values.get("mlflow_run_id") if values else None
+
+
 def _graph_config(state: RunState) -> dict:
     return {
         "configurable": {"thread_id": state.run_id},
@@ -162,7 +171,8 @@ def _graph_config(state: RunState) -> dict:
             "dataset_fingerprint": state.dataset_fingerprint,
             "code_version": provenance.code_version(),
             "llm_backend": config.LLM_BACKEND,
-            "llm_model": config.LLM_CONFIG.model,
+            "llm_source": config.LLM_SOURCE,
+            "llm_model": config.active_llm_model(),
         },
     }
 

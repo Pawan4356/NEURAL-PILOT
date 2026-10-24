@@ -59,8 +59,15 @@ priority language in the user's goal (e.g. "fast", "explainable", "must be inter
   "assumptions": [string, ...],
   "primary_metric": null | "accuracy" | "balanced_accuracy" | "f1_weighted" | "f1_macro" | "roc_auc" | "r2" | "rmse" | "mae",
   "time_column": null | string,
-  "group_column": null | string
+  "group_column": null | string,
+  "constraints": [{"name": string, "kind": "hard" | "soft", "threshold": number | string}]
 }
+- constraints: list of hard or soft requirements the user states about the model. Use only \
+these names: "min_primary_metric" (number), "max_latency_ms_per_1k" (number), \
+"max_train_seconds" (number), "max_model_mb" (number), "max_cv_std" (number), "interpretability" \
+("glass_box" or "explainable"). kind is "hard" for must-haves ("must", "at most", "under", \
+"no more than") and "soft" for preferences. Use an empty list when the user states none. \
+Never invent a limit the user did not mention.
 - primary_metric: set only if the user names a metric; otherwise null.
 - time_column / group_column: set only if the user explicitly asks for a time-ordered or \
 grouped evaluation (e.g. "predict future months", "customers must not leak across splits"); \

@@ -236,9 +236,37 @@ def run_attempt(
     progress_callback: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
     tracker: Tracker | None = None,
+    tracking_tags: dict[str, str] | None = None,
 ) -> AttemptOutcome:
+    """Measure one plan. The tracker, if given, gets one child run for this
+    attempt; it is always closed, even when the attempt raises."""
     budget = budget or AttemptBudget()
     tracker = tracker or NoopTracker()
+    tracker_closed = False
+    try:
+        return _run_attempt(
+            plan, prepared, budget, generate_shap, use_gpu, progress_callback, cancel_event, tracker, tracking_tags
+        )
+    except BaseException:
+        tracker.end_attempt("failed")
+        tracker_closed = True
+        raise
+    finally:
+        if not tracker_closed:
+            tracker.end_attempt("ok")
+
+
+def _run_attempt(
+    plan: PlanSpec,
+    prepared: PreparedData,
+    budget: AttemptBudget,
+    generate_shap: bool,
+    use_gpu: bool | None,
+    progress_callback: Callable[[str], None] | None,
+    cancel_event: threading.Event | None,
+    tracker: Tracker,
+    tracking_tags: dict[str, str] | None,
+) -> AttemptOutcome:
     problem_type = prepared.problem_type
     diagnostics: list[BlockDiagnostics] = []
     fallbacks: list[dict] = []
@@ -332,7 +360,21 @@ def run_attempt(
         )
         return Pipeline([("preprocess", clone(preprocessor)), *[(n, clone(s)) for n, s in fe_steps], ("model", estimator)])
 
-    tracker.start_attempt(signature, {"model_family": model_spec.name, "plan": plan.model_dump()})
+    tracker.start_attempt(
+        signature,
+        {
+            "model_family": model_spec.name,
+            "primary_metric": prepared.primary_metric,
+            "tuner": tuner_spec.name,
+            "n_trials": tuner_config["n_trials"],
+            "split": spec.strategy,
+            "n_folds": spec.n_folds,
+            "seed": prepared.seed,
+            "preprocessing": [s.component for s in plan.preprocessing],
+            "feature_engineering": [s.name for s in plan.feature_engineering],
+        },
+        tracking_tags,
+    )
 
     # --- hyperparameter tuning (CV on training rows, primary metric) ---
     n_classes = int(y_train.nunique()) if problem_type == "classification" else 0
@@ -445,8 +487,16 @@ def run_attempt(
         split=spec,
         resources=resources,
     )
-    tracker.log_metrics(cv_metrics)
-    tracker.end_attempt("ok")
+    # Logged as cv_* so that a child run's numbers are never mistaken for holdout scores.
+    tracker.log_metrics({f"cv_{name}": value for name, value in cv_metrics.items()})
+    tracker.log_metrics(
+        {
+            "latency_ms_per_1k": latency_ms_per_1k,
+            "train_seconds": train_seconds,
+            "hpo_seconds": hpo_result.duration_seconds,
+        }
+    )
+    tracker.log_artifact("plan.json", plan.model_dump())
 
     result = ExecutionResult(
         metrics=cv_metrics,

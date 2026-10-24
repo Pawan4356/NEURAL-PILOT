@@ -13,6 +13,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
+from ..engine.tracking import NoopTracker, Tracker
 from ..llm_client import LLMClient
 from ..repository import ExperimentRepository
 
@@ -30,6 +31,7 @@ class RunContext:
     on_progress: Callable[[str, str], None] = _ignore_progress
     llm: LLMClient | None = None  # None = the process-wide default client
     run_id: str = ""
+    tracker: Tracker = field(default_factory=NoopTracker)  # MLflow or no-op (Phase 6)
 
     def report(self, task: str, tag: str = "agent") -> None:
         """Tell the UI what the run is doing right now."""

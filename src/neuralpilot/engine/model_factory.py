@@ -18,6 +18,8 @@ _CLASS_WEIGHT_PARAMS: dict[str, dict] = {
     "LinearModel": {"class_weight": "balanced"},
     "DecisionTree": {"class_weight": "balanced"},
     "RandomForest": {"class_weight": "balanced"},
+    "ExtraTrees": {"class_weight": "balanced"},
+    "HistGradientBoosting": {"class_weight": "balanced"},
     "CatBoost": {"auto_class_weights": "Balanced"},
 }
 

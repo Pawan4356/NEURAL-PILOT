@@ -21,7 +21,7 @@ from ..observability import traced
 from ..meta_features import DatasetMetaFeatures
 from ..registry import list_components
 from ..repository import ExperimentRecord, SimilarExperiment
-from ..schemas import AttemptSummary, PlanSpec, ReflectionOutput, RequirementSpec
+from ..schemas import AttemptSummary, PlanSpec, ReflectionOutput, RequirementSpec, UnsupportedRecommendation
 
 SYSTEM_PROMPT = f"""You are the Planning Agent in the Neural Pilot system.
 You never write or execute code. You only select and parametrize trusted, pre-built \
@@ -89,6 +89,19 @@ def _format_attempts(attempts: list[AttemptSummary]) -> str:
     return "\n".join(lines)
 
 
+def _format_unsupported(items: list[UnsupportedRecommendation]) -> str:
+    """Components this run already asked for that the registry could not use."""
+    lines = [
+        f"- {u.category} '{u.requested}' is not usable ({u.reason.replace('_', ' ')}); "
+        f"'{u.alternative_used}' was used instead"
+        for u in items
+    ]
+    return (
+        "Components the registry could not use in this run (prefer the listed alternative, "
+        "or a name from the available list):\n" + "\n".join(lines)
+    )
+
+
 def _base_user_prompt(
     requirement: RequirementSpec,
     meta_features: DatasetMetaFeatures,
@@ -133,10 +146,13 @@ def generate_plan(
     replan: bool = False,
     rejection: str | None = None,
     dataset_profile: dict | None = None,
+    unsupported: list[UnsupportedRecommendation] | None = None,
 ) -> PlanSpec:
     client = client or get_default_client()
     user_prompt = _base_user_prompt(requirement, meta_features, similar_experiments, dataset_profile)
 
+    if unsupported:
+        user_prompt += f"\n{_format_unsupported(unsupported)}\n"
     if attempts:
         user_prompt += (
             f"\nAlready tried in this run (do not repeat any of these exact configurations):\n"

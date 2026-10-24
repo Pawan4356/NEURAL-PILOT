@@ -28,8 +28,9 @@ Only one clarification can be asked during a run, and only when the target-colum
 ## Prerequisites
 
 Install [uv](https://docs.astral.sh/uv/) and use Python supported by the project configuration.
-The four agents call an LLM through [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers),
-so a Hugging Face access token is required for interactive runs. The test suite does not need a
+The four agents call an LLM through [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers)
+by default, or through the [Anthropic Claude API](https://docs.anthropic.com) when `NEURALPILOT_LLM_SOURCE=claude`.
+A Hugging Face token (or an Anthropic API key for Claude) is required for interactive runs. The test suite does not need a
 network connection or an API key.
 
 ## Commands
@@ -49,6 +50,11 @@ set +a
 export HF_TOKEN=hf_...
 export HF_MODEL="meta-llama/Llama-3.3-70B-Instruct"  # default
 export HF_PROVIDER="auto"                              # default
+
+# Or switch the source to Claude. The agents then use ANTHROPIC_API_KEY instead of HF_TOKEN.
+export NEURALPILOT_LLM_SOURCE=claude                   # default: huggingface
+export ANTHROPIC_API_KEY=sk-ant-...
+export CLAUDE_MODEL="claude-sonnet-5-5"                # default
 
 # Normal startup.
 uv run neuralpilot
@@ -75,7 +81,10 @@ uv run pytest
 | `HF_TOKEN` | None | Hugging Face access token; required for agent calls |
 | `HF_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Hugging Face model |
 | `HF_PROVIDER` | `auto` | Hugging Face inference provider |
-| `NEURALPILOT_LLM_BACKEND` | `langchain` | `langchain` (LangChain chat model) or `hf` (original client, rollback only) |
+| `NEURALPILOT_LLM_SOURCE` | `huggingface` | Provider the agents call: `huggingface` or `claude` |
+| `ANTHROPIC_API_KEY` | None | Anthropic API key; required when `NEURALPILOT_LLM_SOURCE=claude` |
+| `CLAUDE_MODEL` | `claude-haiku-5-5` | Claude model used when `NEURALPILOT_LLM_SOURCE=claude` |
+| `NEURALPILOT_LLM_BACKEND` | `langchain` | `langchain` (LangChain chat model) or `hf` (original client, rollback only; Hugging Face only) |
 | `NEURALPILOT_LLM_STRUCTURED_OUTPUT` | `auto` | `auto` tries the provider's structured output and falls back to JSON repair; `on` or `off` |
 | `NEURALPILOT_LLM_STRUCTURED_METHOD` | `function_calling` | How structure is requested: `function_calling` or `json_schema` |
 | `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | `false` / None / `neuralpilot-dev` | Optional LangSmith tracing; payloads are redacted before they are sent |
@@ -91,6 +100,10 @@ uv run pytest
 | `NEURALPILOT_MAX_ROWS` / `NEURALPILOT_MAX_COLS` | `2000000` / `500` | Upload size limits |
 | `NEURALPILOT_LEAKAGE_ACTION` | `drop` | `drop` excludes columns that predict the target on their own; `warn` only reports them |
 | `NEURALPILOT_MIN_SIMILARITY` | `0.5` | Past experiments less similar than this are not shown to the planner |
+| `NEURALPILOT_MAX_CANDIDATES` | `3` | Plans measured per iteration: the planner's plan plus deterministic challengers (set `1` for planner-only) |
+| `NEURALPILOT_MLFLOW` | `on` | Log every attempt and the final model to MLflow (`off` disables it) |
+| `MLFLOW_TRACKING_URI` | `sqlite:///runs/mlflow.db` | MLflow tracking store; view with `mlflow ui --backend-store-uri <uri>` |
+| `NEURALPILOT_MLFLOW_ARTIFACTS` | `runs/mlartifacts` | Artifact root for MLflow |
 
 ### Evaluation protocol
 
@@ -103,6 +116,14 @@ and free-text columns, and columns that predict the target almost perfectly on t
 excluded from the features and listed in the report's assumptions. Plans already tried in a
 run are not repeated. `POST /api/runs/{run_id}/cancel` stops a run after the current trial and
 keeps its best attempt.
+
+Each iteration measures the planner's plan and up to two deterministic challengers: an
+interpretable baseline, a family suited to the data size, and the plan of a similar past run
+(as a warm start only). Components the registry cannot use are replaced by a ranked
+alternative, and every substitution is recorded in the report. The user's hard constraints
+(for example a latency limit, or "must be interpretable") are checked on measured values; a
+feasible attempt always beats an infeasible one, and the report shows the constraint table, the
+Pareto front and, when nothing is feasible, the closest attempt for each violated limit.
 
 The web page shows the current task while a run is active. The terminal logs each phase,
 iteration, verification retry, and tuning trial. A complete plan, training, validation,
@@ -128,9 +149,14 @@ With `LANGSMITH_TRACING=true`, each run is one LangSmith trace with a span per g
 agent and LLM call; field names like `df`/`rows`/`api_key`, tabular data, SHAP feature names
 and secret values are masked before anything is sent.
 
+With `NEURALPILOT_MLFLOW=on` (default), each run is one MLflow parent run with its holdout
+metrics and final model, and each candidate attempt is a child run with its parameters and
+cross-validated metrics (`cv_*`). Tracking errors are logged and never fail a run.
+
 Generated files are written under the project root: uploaded CSVs go to `data/`, the
 SQLite experiment log is `runs/experiments.sqlite3`, graph checkpoints are in
-`runs/graph.sqlite3`, and final model artifacts are saved as `runs/models/<run_id>.joblib`.
+`runs/graph.sqlite3`, final model artifacts are saved as `runs/models/<run_id>.joblib`, and
+MLflow's store and artifacts are in `runs/mlflow.db` and `runs/mlartifacts/`.
 
 ## Project layout
 
@@ -149,7 +175,7 @@ src/neuralpilot/
   plateau.py        deterministic plateau detection
   repository.py     SQLite experiment log and nearest-neighbor retrieval
   llm_client.py     LLMClient protocol, original Hugging Face client, default-client selection
-  langchain_llm.py  LangChain client: structured output, JSON repair, transport backoff
+  langchain_llm.py  LangChain client (Hugging Face or Claude): structured output, JSON repair, transport backoff
   observability.py  LangSmith tracing setup and payload redaction
   selection.py      best-attempt rule and deterministic next-untried-plan fallback
   reporting.py      final report and experiment records built from graph state

@@ -39,16 +39,71 @@
 | 1 — Evaluation protocol + engine package split | ✅ Done (commit `3b08e64`) | 2026-10-24 |
 | 2 — LangChain LLM layer + LangSmith | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
 | 3 — LangGraph orchestration | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
-| 4 — Registry v2, candidates, diversity | ⬜ Not started | |
-| 5 — Constraint validator + ValidationReport v2 | ⬜ Not started | |
-| 6 — MLflow tracking | ⬜ Not started | |
+| 4 — Registry v2, candidates, diversity | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
+| 5 — Constraint validator + ValidationReport v2 | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
+| 6 — MLflow tracking | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
 | 7 — Experiment memory v2 | ⬜ Not started | |
 | 8 — Documentation RAG | ⬜ Not started | |
 | 9 — Reflection v2 + deterministic routing | ⬜ Not started | |
 | 10 — External research | ⬜ Not started | |
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
 
-**Next up:** Phase 4 (registry v2, plan resolution, candidate diversity). It plugs into the graph as a richer `resolve_plan` node and a multi-candidate `execute`. Then Phase 5 (constraint validator; this is where a separate `validate` node appears) and Phase 6 (MLflow, behind the existing `Tracker` seam). Before or alongside Phase 11, surface the new report fields in the UI (see Phase 1 limitations). Still owed from Phases 2–3: one manual run with a real `HF_TOKEN` and LangSmith key (see "not verified" below).
+**Next up:** Phase 7 (experiment memory v2) and Phase 8 (documentation RAG), which can run in parallel; Phase 9 (reflection v2, deterministic routing) builds on Phase 5's constraint results and on the candidate log from Phase 4. Before or alongside Phase 11, surface the new report fields in the UI: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id` and the per-iteration `candidates` log are in the final report but not yet rendered. Still owed from Phases 2–6: one manual run with a real `HF_TOKEN`, a LangSmith key, and `mlflow ui` (see "not verified" below).
+
+### Phase 4 + 5 + 6 — done (2026-10-24)
+
+**Test status:** 248 tests pass: the 178 that passed at the start of this phase (three changed on purpose, see below) plus 70 new. The full suite passes with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest`. `ruff check --select F` is clean on the files this phase touched. Real-data smoke run (not in the test suite): the churn testing file (`CustomerID` excluded; planner `LinearModel` 0.838 CV f1, challenger `HistGradientBoosting` 0.9997 selected; holdout 0.9998; 125 s with 6 HPO trials per candidate).
+
+**Where the code lives**
+- Phase 4
+  - `registry.py` — `ComponentSpec` v2 fields (`aliases`, `semantic_group`, `alternatives`, `resource_class`, `max_rows_hint`); `find_component` (name or alias), `components_supporting`, `default_component`, `get_model_group`. New: `TargetEncoder`, `HistGradientBoosting`, `ExtraTrees`.
+  - `plan_resolution.py` — `resolve(plan, profile, …) -> ResolvedPlan | PlanRejection`. Exact/alias match, else a ranked alternative (same semantic group first; score = 0.4·task + 0.25·data + 0.2·memory prior + 0.15·(1−cost)). Substitutions are returned as `UnsupportedRecommendation`s. Encoder swaps across groups only for tree models. Hard glass-box requirements replace black-box families.
+  - `candidates.py` — `build_candidates`: the planner's plan first, then a `baseline` (LinearModel, else DecisionTree), a `profile` family (HistGradientBoosting above 50k rows, ExtraTrees at 5k rows or fewer), and a `memory` warm start from the best similar past plan. Capped at `config.MAX_CANDIDATES` (default 3); executed signatures and black-box families (under glass-box) are excluded.
+  - `engine/runner.py` — `run_attempt` accepts `tracking_tags` and always closes its tracker run; `engine/model_factory.py`, `engine/hpo.py` — class weights and search spaces for the two new families.
+  - `graph/nodes.py` — `resolve_plan` resolves the plan and builds challengers; `execute` measures every candidate (planner first; a failing challenger is logged, not fatal; challengers are skipped when cancelled or under `CHALLENGER_MIN_BUDGET_S`); `IterationLog.candidates` records each one.
+  - `repository.py` — migration 2: `runs.mlflow_run_id` and the `unsupported_recommendations` table (`save_unsupported`, `unsupported_for_run`).
+  - `agents/planning_agent.py` — the prompt lists components the run could not use, with the alternative that was used.
+- Phase 5
+  - `schemas.py` — `Constraint` (names: `min_primary_metric`, `max_latency_ms_per_1k`, `max_train_seconds`, `max_model_mb`, `max_cv_std`, `interpretability`; `kind` hard/soft), `ConstraintResult`. `RequirementSpec.constraints` drops invalid entries and notes them in `assumptions`. `AttemptSummary` carries `feasible`, `constraint_results`, `latency_ms_per_1k`, `interp_norm`, `source`.
+  - `validation/constraints.py` — checks on measured `AttemptResult` values; deterministic explanation text (e.g. `latency 82.0 ms/1k > 50.0 ms/1k limit (+64%)`). `requires_glass_box`, `is_feasible`.
+  - `validation/report.py` — `evaluate_attempt`, `pareto_front` (metric, latency, interpretability), `closest_per_violation`, `summarize_run`.
+  - `selection.py` — `is_better` is feasibility-first, then the existing CV rule.
+  - `agents/requirement_agent.py` — the prompt asks for constraints with a fixed name list.
+  - `graph/nodes.py` — `decide` refuses to accept while the best attempt misses a hard constraint and iterations/budget remain (`forced` refine).
+  - `reporting.py` — the final report gains `constraint_table`, `feasible`, `acceptable`, `feasible_count`, `pareto_front`, `closest_per_violation`, `best_plan`, `unsupported_recommendations`, `mlflow_run_id`; substitutions appear in `assumptions`.
+- Phase 6
+  - `engine/tracking.py` — `Tracker` protocol (`start_parent`, `start_attempt`, `log_metrics`, `log_artifact`, `end_attempt`, `log_final`, `end`), `NoopTracker`, `make_tracker`.
+  - `engine/mlflow_tracker.py` — `MlflowTracker`: one parent run per NeuralPilot run (tags, `holdout_*` metrics, `final_report.json`, `load_report.json`, the model), one child run per candidate (params, `cv_*` metrics, `latency_ms_per_1k`, `plan.json`). Every call is guarded.
+  - `config.py` — `MAX_CANDIDATES`, `MIN_TRIALS_PER_CANDIDATE`, `HIST_GB_MIN_ROWS`, `SMALL_DATA_ROWS`, `CHALLENGER_MIN_BUDGET_S`, `GLASS_BOX_CLASSES`, `MLFLOW_*`.
+  - `graph/state.py` / `context.py` / `orchestrator.py` — `mlflow_run_id` in state (so a resumed run keeps its parent); the tracker is built per invocation from the checkpointed parent id.
+- Tests (new): `tests/test_registry_v2.py`, `tests/test_plan_resolution.py`, `tests/test_candidates.py`, `tests/test_constraints.py` (includes an end-to-end run with an impossible limit), `tests/test_model_diversity.py` (a tree family wins on an interaction, and the linear model was still measured), `tests/test_tracking.py` (real MLflow store under `tmp_path`: parent and child runs, saved model reloads to the same predictions, tracking failure does not fail the run). Also one repository round-trip test. The `conftest.py` autouse fixture turns MLflow off and points every store at `tmp_path`.
+
+**Verification**
+- `test_saved_model_reloads_to_the_same_predictions` runs `log_model` + `mlflow.sklearn.load_model` on pandas 3.0.5 with MLflow 3.17.2: this is the Phase 6 gate from Deliverable 11.1. It passes, so full `mlflow` stays (no fallback to `mlflow-skinny`).
+- Unsafe substitution is refused: a plan whose only component cannot run the task is rejected with the list of components that can.
+- Test runs no longer write into `runs/`: the first version of the conftest let MLflow write `runs/mlflow.db`; those files were deleted and the fixture fixed.
+
+**Deviations from the plan (deliberate)**
+- **Candidates are a list in state, not a `PlanSpec.candidates` field.** The planner still produces one plan, which is the one reflected on and refined. Challengers are deterministic. This keeps the LLM contract and the refine logic unchanged.
+- **Budget split is equal, not successive halving.** Each candidate gets `HPO_MAX_TRIALS // n` trials (floor `MIN_TRIALS_PER_CANDIDATE` = 5) and `timeout / n`. Halving needs resumable Optuna studies, which `tune` does not have yet. Consequence: with the default cap of 50 and 3 candidates, the planner's own plan now gets 16 trials per iteration instead of 50. Set `NEURALPILOT_MAX_CANDIDATES=1` to restore the old behaviour.
+- **Model artifact uses cloudpickle, not MLflow's default skops format.** skops rejects `sklearn.tree._tree.Tree`, so the default cannot log a random forest. The store is local and written by this process, which is the case where pickle is acceptable. MLflow logs a warning about this on every save.
+- **Signature only, no input example.** The model signature lists column names and types (`double`/`string`) with no rows, as the design requires.
+- **`ComponentSpec` v2 is partial.** Not added: `input_types`, `handles_missing`, `native_categorical`, `needs_scaling`, `param_schema` (the existing per-component validators in `engine/preprocessing.py` still do this job), `explainers`, `dependency`, `status`, and `registry_version`. Feature engineering is still an engine concern, not a registry category.
+- **LightGBM is not added.** It is optional in Deliverable 8.1 (only if the compatibility check passes). `HistGradientBoosting` covers the same role without a new native dependency, and LightGBM can be registered later.
+- **`TargetEncoder` substitutes only for tree models across groups.** It is registered (cross-fitted inside `fit`, so it is safe in CV), but a linear model never gets a target-encoded feature by substitution.
+- **Selection tie-breaks** use the existing composite score. The design's "lower latency, then higher interpretability" tie-break is not implemented.
+- **Constraints come from the requirement agent only.** The web form fields listed as optional in Phase 5 are not added.
+- **Plateau detection** still uses the composite score of the planner's plan, not the best feasible attempt.
+- **Resolution uses the training row count** (`n_train`) for the over-budget check, not the full row count.
+- **Reflection does not see constraint failures yet.** That is Phase 9 (Deliverable 9.5).
+- **Not built:** `scripts/registry_gaps.py`, `scripts/model_selection_report.py`, and `registry_version` hashes. The data they need is recorded (`unsupported_recommendations`, `IterationLog.candidates`).
+
+**Known limitations / open items carried forward**
+- The planner's prompt does not mention that challengers exist, and the planner cannot see challenger results beyond the "Already tried" list (which includes them).
+- A replan can now re-ask the planner when its proposed plan equals a challenger that was already measured. This is correct (the signature was executed), but it uses one of the planner's `MAX_PLAN_ATTEMPTS` retries.
+- `TargetEncoder` and `HistGradientBoosting` have only the synthetic and churn runs behind them; no real LLM has proposed them yet.
+- MLflow's UI was not opened in a browser; `mlflow ui --backend-store-uri sqlite:///runs/mlflow.db` is the suggested check.
+- Still owed from before: a real `HF_TOKEN` run and a real LangSmith trace (see Phases 2–3).
 
 ### Phase 2 + 3 — done (2026-10-24)
 

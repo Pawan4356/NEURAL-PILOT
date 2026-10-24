@@ -6,6 +6,7 @@ import pytest
 
 import joblib
 
+from neuralpilot import config
 from neuralpilot.graph import nodes
 from neuralpilot import llm_client
 from neuralpilot.agents.requirement_agent import InvalidClarification
@@ -36,6 +37,14 @@ class ScriptedClient:
         idx = min(self.indices[schema], len(responses) - 1)
         self.indices[schema] += 1
         return responses[idx]
+
+
+@pytest.fixture(autouse=True)
+def single_candidate_loop(monkeypatch):
+    """These tests cover the loop's guardrails (best-so-far, replan, dedupe),
+    where each iteration measures only the planner's plan. Challengers are
+    covered in tests/test_candidates.py and tests/graph/test_graph_e2e.py."""
+    monkeypatch.setattr(config, "MAX_CANDIDATES", 1)
 
 
 @pytest.fixture

@@ -10,6 +10,7 @@ from __future__ import annotations
 from . import provenance
 from .repository import ExperimentRecord
 from .schemas import DecisionOutput
+from .validation.report import summarize_run
 
 
 def collect_assumptions(state: dict) -> list[str]:
@@ -32,6 +33,12 @@ def collect_assumptions(state: dict) -> list[str]:
             assumptions.append(f"iteration {log.iteration}: {warning}")
         for note in log.plan_adjustments:
             assumptions.append(f"iteration {log.iteration}: {note}")
+    for item in state.get("unsupported_recommendations") or []:
+        change = " (semantic change)" if item.semantic_change else ""
+        assumptions.append(
+            f"iteration {item.iteration}: {item.category} '{item.requested}' not used ({item.reason.replace('_', ' ')})"
+            f" -> '{item.alternative_used}'{change}"
+        )
     return assumptions
 
 
@@ -48,6 +55,22 @@ def reproducibility_block(state: dict) -> dict:
 def cv_metrics_of(state: dict) -> dict:
     attempt = state["best"].attempt
     return {name: {"mean": s.mean, "std": s.std} for name, s in attempt.cv.items()}
+
+
+def validation_block(state: dict) -> dict:
+    """Phase 5: whether the chosen model meets the user's hard constraints,
+    and the run-level view (feasible count, Pareto front, closest attempts)."""
+    best = state["best"]
+    summary = summarize_run(list(state.get("attempts") or []), best.summary)
+    return {
+        "acceptable": best.validation.feasible,
+        "feasible": best.validation.feasible,
+        "constraint_table": [r.model_dump() for r in best.validation.constraint_results],
+        "feasible_count": summary["feasible_count"],
+        "attempt_count": summary["attempt_count"],
+        "pareto_front": summary["pareto_front"],
+        "closest_per_violation": summary["closest_per_violation"],
+    }
 
 
 def build_final_report(
@@ -80,6 +103,10 @@ def build_final_report(
         "latency_ms_per_1k": attempt.resources.latency_ms_per_1k,
         "resources": attempt.resources.model_dump(),
         "constraint_weights": requirement.constraint_weights.model_dump(),
+        **validation_block(state),
+        "best_plan": best.plan.model_dump(),
+        "unsupported_recommendations": [u.model_dump() for u in state.get("unsupported_recommendations") or []],
+        "mlflow_run_id": state.get("mlflow_run_id"),
         "shap_summary": shap_summary,
         "assumptions": collect_assumptions(state),
         "data": {**(state.get("data_summary") or {}), "load_report": state.get("load_report") or {}},
@@ -135,6 +162,7 @@ def finalized_record(state: dict, meta_features: dict) -> ExperimentRecord:
         code_version=report["reproducibility"]["code_version"],
         lib_versions=report["reproducibility"]["lib_versions"],
         final_report=report,
+        mlflow_run_id=state.get("mlflow_run_id"),
     )
 
 
@@ -160,4 +188,5 @@ def failed_record(state: dict, meta_features: dict) -> ExperimentRecord:
         dataset_fingerprint=state.get("dataset_fingerprint"),
         code_version=provenance.code_version(),
         lib_versions=provenance.lib_versions(),
+        mlflow_run_id=state.get("mlflow_run_id"),
     )

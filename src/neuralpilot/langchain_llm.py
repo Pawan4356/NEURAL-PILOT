@@ -1,7 +1,9 @@
 """LangChain implementation of the `LLMClient` protocol (Phase 2).
 
 Agents keep calling `complete_json(system, user, schema)`; only the
-transport changes. Each call:
+transport changes. The provider is chosen by NEURALPILOT_LLM_SOURCE:
+Hugging Face Inference Providers (default) or the Anthropic Claude API.
+Each call:
 
 1. tries the provider's structured output (`with_structured_output`),
    unless that has already failed for this provider or is switched off;
@@ -30,7 +32,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel, ValidationError
 
 from . import config
-from .config import LLMConfig, LLM_CONFIG
+from .config import ClaudeConfig, LLMConfig
 from .llm_client import LLMJSONError, LLMNotConfiguredError, _extract_json
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,8 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 R = TypeVar("R")
 
-_TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+# 529 is Anthropic's "overloaded" status; it is retried like a rate limit.
+_TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 _TRANSIENT_ERROR_NAMES = {
     "TimeoutError",
     "ConnectionError",
@@ -47,6 +50,7 @@ _TRANSIENT_ERROR_NAMES = {
     "TimeoutException",
     "ConnectError",
     "RemoteProtocolError",
+    "APIConnectionError",  # anthropic SDK; APITimeoutError subclasses it
 }
 
 
@@ -79,6 +83,33 @@ def build_chat_model(llm_config: LLMConfig) -> BaseChatModel:
         max_tokens=llm_config.max_tokens,
         temperature=llm_config.temperature,
     )
+
+
+def build_claude_chat_model(claude_config: ClaudeConfig) -> BaseChatModel:
+    """Chat model over the Anthropic Messages API, configured from the
+    ANTHROPIC_API_KEY / CLAUDE_MODEL settings."""
+    if not claude_config.api_key:
+        raise LLMNotConfiguredError(
+            "ANTHROPIC_API_KEY is not set. Export ANTHROPIC_API_KEY=<your Anthropic API key> "
+            "before running agents that call Claude."
+        )
+    from langchain_anthropic import ChatAnthropic
+
+    return ChatAnthropic(
+        model=claude_config.model,
+        api_key=claude_config.api_key,
+        max_tokens=claude_config.max_tokens,
+        temperature=claude_config.temperature,
+        timeout=claude_config.timeout,
+        max_retries=0,  # call_with_backoff owns the retries, as for Hugging Face
+    )
+
+
+def build_default_chat_model() -> BaseChatModel:
+    """The chat model for the provider chosen by NEURALPILOT_LLM_SOURCE."""
+    if config.LLM_SOURCE == "claude":
+        return build_claude_chat_model(config.CLAUDE_CONFIG)
+    return build_chat_model(config.LLM_CONFIG)
 
 
 def status_code_of(exc: BaseException) -> int | None:
@@ -138,7 +169,6 @@ class LangChainLLMClient:
 
     def __init__(
         self,
-        llm_config: LLMConfig | None = None,
         *,
         chat_model: BaseChatModel | None = None,
         structured_output: str | None = None,
@@ -146,8 +176,7 @@ class LangChainLLMClient:
         max_transport_attempts: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
-        self.config = llm_config or LLM_CONFIG
-        self.chat_model = chat_model if chat_model is not None else build_chat_model(self.config)
+        self.chat_model = chat_model if chat_model is not None else build_default_chat_model()
         self.structured_output = structured_output or config.LLM_STRUCTURED_OUTPUT
         self.structured_method = structured_method or config.LLM_STRUCTURED_METHOD
         self.max_transport_attempts = max_transport_attempts or config.LLM_TRANSPORT_RETRIES

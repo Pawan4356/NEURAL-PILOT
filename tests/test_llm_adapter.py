@@ -156,6 +156,54 @@ def test_backend_selection(monkeypatch):
         llm_client.get_default_client()
 
 
+def test_source_selection_builds_the_matching_chat_model(monkeypatch):
+    from neuralpilot.langchain_llm import build_default_chat_model
+
+    monkeypatch.setattr(config, "LLM_SOURCE", "huggingface")
+    monkeypatch.setattr(config.LLM_CONFIG, "api_key", "hf_dummy_token_123456")
+    assert type(build_default_chat_model()).__name__ == "ChatHuggingFace"
+
+    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
+    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", "sk-ant-dummy-123456")
+    model = build_default_chat_model()
+    assert type(model).__name__ == "ChatAnthropic"
+    assert model.model == config.CLAUDE_CONFIG.model
+
+
+def test_claude_source_without_api_key_is_not_configured(monkeypatch):
+    from neuralpilot.langchain_llm import build_default_chat_model
+
+    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
+    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", None)
+    with pytest.raises(LLMNotConfiguredError, match="ANTHROPIC_API_KEY"):
+        build_default_chat_model()
+
+
+def test_source_selection_rejects_unknown_and_legacy_combinations(monkeypatch):
+    monkeypatch.setattr(config, "LLM_BACKEND", "langchain")
+    monkeypatch.setattr(config, "LLM_SOURCE", "openai")
+    llm_client._default_client = None
+    with pytest.raises(ValueError, match="NEURALPILOT_LLM_SOURCE"):
+        llm_client.get_default_client()
+
+    monkeypatch.setattr(config, "LLM_SOURCE", "claude")
+    monkeypatch.setattr(config, "LLM_BACKEND", "hf")
+    monkeypatch.setattr(config.CLAUDE_CONFIG, "api_key", "sk-ant-dummy-123456")
+    llm_client._default_client = None
+    with pytest.raises(ValueError, match="only supports NEURALPILOT_LLM_SOURCE=huggingface"):
+        llm_client.get_default_client()
+    llm_client._default_client = None
+
+
+def test_claude_overload_and_connection_errors_are_transient():
+    class APIConnectionError(Exception):
+        pass
+
+    assert is_transient(HTTPStatusError(529))  # Anthropic "overloaded"
+    assert is_transient(APIConnectionError("dropped"))
+    assert not is_transient(HTTPStatusError(401))  # bad key: fail fast
+
+
 class StubInference:
     """Stands in for huggingface_hub.InferenceClient.chat_completion."""
 

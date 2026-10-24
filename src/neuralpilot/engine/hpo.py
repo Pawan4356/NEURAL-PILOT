@@ -55,6 +55,17 @@ def search_space(model_family: str, trial: optuna.Trial, problem_type: ProblemTy
             "n_estimators": trial.suggest_int("n_estimators", 50, 200),
             "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
         }
+    if model_family == "ExtraTrees":
+        return {
+            "n_estimators": trial.suggest_int("n_estimators", 50, 300),
+            "max_depth": trial.suggest_int("max_depth", 2, 20),
+        }
+    if model_family == "HistGradientBoosting":
+        return {
+            "max_iter": trial.suggest_int("max_iter", 50, 300),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "max_leaf_nodes": trial.suggest_int("max_leaf_nodes", 8, 64),
+        }
     if model_family == "XGBoost":
         return {
             "n_estimators": trial.suggest_int("n_estimators", 50, 300),

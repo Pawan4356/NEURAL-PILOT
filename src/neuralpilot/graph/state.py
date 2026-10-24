@@ -17,12 +17,14 @@ from typing import Annotated, Literal, TypedDict
 from ..schemas import (
     AttemptSummary,
     BestAttempt,
+    CandidatePlan,
     DecisionOutput,
     ExecutionResult,
     IterationLog,
     PlanSpec,
     ReflectionOutput,
     RequirementSpec,
+    UnsupportedRecommendation,
     ValidationReport,
 )
 
@@ -64,9 +66,11 @@ class NPState(TypedDict, total=False):
     failed_plan: PlanSpec | None
     verification_failure: str | None
     candidate_plan: PlanSpec | None  # planner output, not yet checked
-    plan: PlanSpec | None  # verified and not a repeat: ready to execute
+    plan: PlanSpec | None  # verified, resolved and not a repeat: ready to execute
     plan_source: str  # "planner" or "deterministic_fallback"
     verification_warnings: list[str]
+    candidates: list[CandidatePlan] | None  # plan + challengers, executed this iteration
+    unsupported_recommendations: Annotated[list[UnsupportedRecommendation], operator.add]  # appended
 
     # --- carried from one iteration to the next ---
     previous_plan: PlanSpec | None
@@ -78,8 +82,10 @@ class NPState(TypedDict, total=False):
     score_history: Annotated[list[float], operator.add]  # appended
     weakest_block_history: Annotated[list[str], operator.add]  # appended
     iteration_logs: Annotated[list[IterationLog], operator.add]  # appended
-    last_execution: ExecutionResult | None
-    last_validation: ValidationReport | None
+    last_execution: ExecutionResult | None  # the planner's plan this iteration
+    last_validation: ValidationReport | None  # the planner's plan this iteration
+    last_summary: AttemptSummary | None  # the planner's plan this iteration
+    iteration_candidates: list[dict]  # per-candidate outcomes this iteration (for the log)
     reflection: ReflectionOutput | None  # this iteration's reflection
     best: BestAttempt | None
 
@@ -88,6 +94,7 @@ class NPState(TypedDict, total=False):
     decision: DecisionOutput | None
 
     # --- output ---
+    mlflow_run_id: str | None  # parent run in the MLflow tracking store
     holdout_evaluations: int
     model_path: str | None
     final_metrics: dict | None
@@ -101,12 +108,14 @@ class NPState(TypedDict, total=False):
 CHECKPOINT_TYPES = (
     AttemptSummary,
     BestAttempt,
+    CandidatePlan,
     DecisionOutput,
     ExecutionResult,
     IterationLog,
     PlanSpec,
     ReflectionOutput,
     RequirementSpec,
+    UnsupportedRecommendation,
     ValidationReport,
 )
 
@@ -123,4 +132,6 @@ def plan_reset() -> dict:
         "plan": None,
         "plan_source": "planner",
         "verification_warnings": [],
+        "candidates": None,
+        "iteration_candidates": [],
     }

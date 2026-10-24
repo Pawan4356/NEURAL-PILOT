@@ -39,13 +39,14 @@ SENSITIVE_KEYS = {
     "token",
     "hf_token",
     "huggingfacehub_api_token",
+    "anthropic_api_key",
     "authorization",
     "password",
     "secret",
     # One-hot feature names ("color_teal") carry category values.
     "shap_summary",
 }
-SECRET_ENV_VARS = ("HF_TOKEN", "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "TAVILY_API_KEY")
+SECRET_ENV_VARS = ("HF_TOKEN", "ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "TAVILY_API_KEY")
 _MIN_SECRET_LENGTH = 8  # shorter values would mask ordinary words
 
 _client = None

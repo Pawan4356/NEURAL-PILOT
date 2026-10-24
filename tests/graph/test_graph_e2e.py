@@ -184,12 +184,14 @@ def test_resume_after_crash_does_not_rerun_completed_attempts(csv, repo, monkeyp
     state = create_run(csv, "data.csv", "predict y")
     with pytest.raises(Crash):
         run_to_completion(state, repo=repo, llm=client)
-    assert executed == [1]
+    # The planner's plan and its challengers were all measured before the crash.
+    measured_before_crash = len(executed)
+    assert measured_before_crash >= 1
     assert _checkpoint(state.run_id).next == ("reflect",)
 
     # As after a restart: the fitted pipeline is gone from memory, only the file remains.
     assert nodes.resources._pipelines.pop(state.run_id, None) is not None
     state = run_to_completion(state, repo=repo, llm=client)
     assert state.status == "finalized", state.error
-    assert executed == [1]  # the attempt was not trained again
+    assert len(executed) == measured_before_crash  # no candidate was trained again
     assert state.holdout_evaluations == 1

@@ -26,6 +26,7 @@ import numpy as np
 
 from . import config
 from .meta_features import DatasetMetaFeatures, memory_vector
+from .schemas import UnsupportedRecommendation
 
 _BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -57,6 +58,23 @@ _MIGRATIONS: list[list[str]] = [
         "ALTER TABLE runs ADD COLUMN lib_versions_json TEXT NOT NULL DEFAULT '{}'",
         "ALTER TABLE runs ADD COLUMN final_report_json TEXT",
     ],
+    [  # Phase 4 + 6: MLflow parent run, and components the registry could not use.
+        "ALTER TABLE runs ADD COLUMN mlflow_run_id TEXT",
+        """
+        CREATE TABLE IF NOT EXISTS unsupported_recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            iteration INTEGER NOT NULL,
+            requested TEXT NOT NULL,
+            category TEXT NOT NULL,
+            source TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            alternative_used TEXT,
+            semantic_change INTEGER NOT NULL,
+            context_json TEXT NOT NULL
+        )
+        """,
+    ],
 ]
 SCHEMA_VERSION = len(_MIGRATIONS)
 
@@ -83,6 +101,7 @@ class ExperimentRecord:
     code_version: str | None = None
     lib_versions: dict = field(default_factory=dict)
     final_report: dict | None = None
+    mlflow_run_id: str | None = None
 
     @classmethod
     def new(cls, **kwargs) -> "ExperimentRecord":
@@ -113,6 +132,7 @@ class ExperimentRecord:
             code_version=row["code_version"],
             lib_versions=json.loads(row["lib_versions_json"]),
             final_report=json.loads(report) if report else None,
+            mlflow_run_id=row["mlflow_run_id"],
         )
 
 
@@ -148,8 +168,8 @@ class ExperimentRepository:
                  meta_features_json, plan_json, scores_json, weakest_block_history_json,
                  final_decision, final_composite_score, status, error, iteration_logs_json,
                  final_metrics_json, model_path, dataset_fingerprint, code_version,
-                 lib_versions_json, final_report_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 lib_versions_json, final_report_json, mlflow_run_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.run_id,
@@ -172,9 +192,55 @@ class ExperimentRepository:
                 record.code_version,
                 json.dumps(record.lib_versions),
                 json.dumps(record.final_report, default=str) if record.final_report is not None else None,
+                record.mlflow_run_id,
             ),
         )
         self._conn.commit()
+
+    def save_unsupported(self, run_id: str, rows: list[UnsupportedRecommendation]) -> None:
+        """Replace this run's unsupported-recommendation rows (called once, at the end)."""
+        self._conn.execute("DELETE FROM unsupported_recommendations WHERE run_id = ?", (run_id,))
+        self._conn.executemany(
+            """
+            INSERT INTO unsupported_recommendations
+                (run_id, iteration, requested, category, source, reason, alternative_used,
+                 semantic_change, context_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    run_id,
+                    row.iteration,
+                    row.requested,
+                    row.category,
+                    row.source,
+                    row.reason,
+                    row.alternative_used,
+                    int(row.semantic_change),
+                    json.dumps(row.context, default=str),
+                )
+                for row in rows
+            ],
+        )
+        self._conn.commit()
+
+    def unsupported_for_run(self, run_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM unsupported_recommendations WHERE run_id = ? ORDER BY id", (run_id,)
+        ).fetchall()
+        return [
+            {
+                "iteration": r["iteration"],
+                "requested": r["requested"],
+                "category": r["category"],
+                "source": r["source"],
+                "reason": r["reason"],
+                "alternative_used": r["alternative_used"],
+                "semantic_change": bool(r["semantic_change"]),
+                "context": json.loads(r["context_json"]),
+            }
+            for r in rows
+        ]
 
     def all_runs(self, status: str | None = None) -> list[ExperimentRecord]:
         if status is None:
