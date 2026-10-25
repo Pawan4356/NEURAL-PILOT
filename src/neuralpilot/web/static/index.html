@@ -15,7 +15,7 @@
         <div class="crumb" id="crumb">/ <b>new run</b></div>
       </div>
       <div class="top-actions">
-        <div class="env">HF_MODEL <b>configured</b> · max_iterations <b id="max-iterations">5</b></div>
+        <div class="env" id="env-line">llm <b id="env-model">…</b> · max_iterations <b id="max-iterations">5</b></div>
         <div class="theme-toggle">
           <button id="btn-dark" class="active" type="button">◐ Dark</button>
           <button id="btn-light" type="button">☀ Light</button>
@@ -38,12 +38,7 @@
         <label for="goal-input">Prediction goal</label>
         <textarea id="goal-input" placeholder="Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea>
         <div class="hint">Mention "fast," "explainable," or "as accurate as possible". Sensible defaults are used otherwise.</div>
-        <div class="env-row">
-          <div class="chip">split <b>80/20</b></div>
-          <div class="chip">seed <b>42</b></div>
-          <div class="chip">cv <b>3-fold</b></div>
-          <div class="chip">tuner <b>auto</b></div>
-        </div>
+        <div class="env-row" id="env-row"></div>
         <button class="btn" id="start-btn" type="button">Start run →</button>
         <div id="new-error" class="error-box hidden"></div>
       </div>
@@ -82,21 +77,24 @@
           <h2>Final report</h2>
           <span class="badge">finalized</span>
         </div>
+        <div class="warn-box hidden" id="score-warning"></div>
+        <div class="warn-box info hidden" id="stop-reason"></div>
         <div class="stat-grid" id="stats"></div>
         <div class="detail-grid">
           <div class="panel">
             <div class="panel-head">
               <div class="panel-title">Iteration history</div>
+              <div class="chip" id="attempt-count"></div>
             </div>
             <div class="table-scroll">
               <table>
                 <thead>
-                  <tr><th>#</th><th>Weakest block</th><th>Score</th><th>Decision</th></tr>
+                  <tr><th>#</th><th>Plan</th><th>Weakest block</th><th>Score</th><th>Decision</th></tr>
                 </thead>
                 <tbody id="history"></tbody>
               </table>
             </div>
-            <div class="note-box hidden" id="fallback-note"></div>
+            <div class="hint" id="history-note"></div>
           </div>
           <div class="panel">
             <div class="panel-head">
@@ -105,6 +103,19 @@
             <div class="shap-list" id="shap-list"></div>
             <div id="no-shap" class="hint hidden">No SHAP summary was generated for this run.</div>
           </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Run details</div>
+          </div>
+          <div class="fact-grid" id="facts"></div>
+          <div class="note-box hidden" id="excluded-note"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Run notes</div>
+          </div>
+          <div id="notes-groups"></div>
         </div>
         <div class="final-actions">
           <a id="download-link" class="btn download-btn">Download model (.joblib)</a>

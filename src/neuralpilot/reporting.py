@@ -73,6 +73,23 @@ def validation_block(state: dict) -> dict:
     }
 
 
+def tuning_block(state: dict) -> dict:
+    """What the tuner managed to do: a plan's trial count is an upper bound,
+    not a promise, because the attempt's timeout can cut the search short."""
+    for block in state["best"].validation.per_block_diagnostics:
+        if block.block == "hyperparameters":
+            details = block.details or {}
+            return {
+                "tuner": details.get("tuner"),
+                "requested_trials": details.get("n_trials"),
+                "completed_trials": details.get("n_trials_completed"),
+                "pruned_trials": details.get("n_trials_pruned"),
+                "failed_trials": details.get("n_trials_failed"),
+                "stopped_reason": details.get("stopped_reason"),
+            }
+    return {}
+
+
 def build_final_report(
     state: dict,
     *,
@@ -102,6 +119,7 @@ def build_final_report(
         "best_hyperparameters": attempt.best_params,
         "latency_ms_per_1k": attempt.resources.latency_ms_per_1k,
         "resources": attempt.resources.model_dump(),
+        "tuning": tuning_block(state),
         "constraint_weights": requirement.constraint_weights.model_dump(),
         **validation_block(state),
         "best_plan": best.plan.model_dump(),

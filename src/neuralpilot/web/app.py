@@ -80,6 +80,24 @@ def index() -> HTMLResponse:
     return HTMLResponse((_STATIC_DIR / "index.html").read_text())
 
 
+@app.get("/api/config")
+def runtime_config() -> JSONResponse:
+    """Settings the page shows before a run exists (LLM source, split, budgets)."""
+    key = config.NVIDIA_CONFIG.api_key if config.LLM_SOURCE == "nvidia" else config.LLM_CONFIG.api_key
+    return JSONResponse(
+        {
+            "llm_source": config.LLM_SOURCE,
+            "llm_model": config.active_llm_model(),
+            "llm_key_configured": bool(key),
+            "max_iterations": config.MAX_ITERATIONS,
+            "run_budget_s": config.RUN_BUDGET_S,
+            "seed": config.SEED,
+            "holdout_fraction": config.HOLDOUT_FRACTION,
+            "cv_folds": config.CV_FOLDS,
+        }
+    )
+
+
 @app.get("/logo.svg")
 def logo(theme: str = None) -> Response:
     content = _LOGO_PATH.read_text()
