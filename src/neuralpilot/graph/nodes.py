@@ -1,9 +1,8 @@
 """Graph nodes. Each one wraps existing business logic and returns only the
 state fields it changes.
 
-LLM nodes: `understand`, `plan`, `reflect`, `decide` (the decision agent's
-guardrails short-circuit before any LLM call). Everything else is
-deterministic. The `clarify` node pauses the graph with `interrupt()`; on
+LLM nodes: `understand`, `plan`, `reflect`. Everything else, including
+`decide`, is deterministic (Phase 9: the routing rules are in `graph/decision.py`). The `clarify` node pauses the graph with `interrupt()`; on
 resume LangGraph re-runs it from the top, so nothing before the
 `interrupt()` call may have side effects.
 
@@ -26,7 +25,6 @@ from langgraph.types import interrupt
 from pydantic import ValidationError
 
 from .. import config, reporting
-from ..agents.decision_agent import decide as decision_agent
 from ..agents.planning_agent import generate_plan
 from ..agents.reflection_agent import reflect as reflection_agent
 from ..agents.requirement_agent import (
@@ -36,13 +34,16 @@ from ..agents.requirement_agent import (
     needs_clarification,
     understand_requirement,
 )
-from ..candidates import build_candidates
+from ..candidates import WarmStart, build_candidates
 from ..engine import AttemptBudget, plan_signature, run_attempt
 from ..engine.explainability import shap_summary
 from ..engine.runner import AttemptOutcome, holdout_evaluate
 from ..meta_features import DatasetMetaFeatures, extract_meta_features
 from ..plan_resolution import PlanProfile, PlanRejection, resolve
+from ..knowledge.retrieve import check_citations, query_for, retrieve
+from ..knowledge.sources import registry_component_names
 from ..repository import SimilarExperiment
+from ..reflection_guard import usable_suggestions
 from ..schemas import (
     AttemptSummary,
     BestAttempt,
@@ -56,10 +57,10 @@ from ..schemas import (
 from ..scoring import compute_validation, should_generate_shap
 from ..selection import is_better, next_untried_plan, plan_summary
 from ..validation import evaluate_attempt, requires_glass_box
-from ..validation.constraints import violated_names
 from ..verification import verify_plan
 from . import resources
 from .context import RunContext
+from .decision import decide_route
 from .state import NPState, plan_reset
 
 logger = logging.getLogger(__name__)
@@ -119,16 +120,20 @@ def _memory_evidence(similar: list[SimilarExperiment]) -> dict[str, float]:
     return evidence
 
 
-def _memory_plans(similar: list[SimilarExperiment]) -> list[PlanSpec]:
-    """Plans of similar past runs, as warm-start proposals. Records that do not
-    parse against the current schema are skipped rather than failing the run."""
-    plans = []
+def _memory_plans(similar: list[SimilarExperiment]) -> list[WarmStart]:
+    """Plans of similar past runs, as warm-start proposals, each with the
+    hyperparameters its model found. Records that do not parse against the
+    current schema are skipped rather than failing the run."""
+    proposals = []
     for item in similar:
         try:
-            plans.append(PlanSpec.model_validate(item.record.plan))
+            plan = PlanSpec.model_validate(item.record.plan)
         except ValidationError:
             continue
-    return plans
+        report = item.record.final_report or {}
+        params = report.get("best_hyperparameters") or {}
+        proposals.append(WarmStart(plan=plan, best_params=params if report.get("model_family") == plan.model_family else {}))
+    return proposals
 
 
 def _input_columns(prepared) -> dict[str, str]:
@@ -227,13 +232,37 @@ def prepare(state: NPState, runtime: Runtime[RunContext]) -> dict:
 
 
 def retrieve_knowledge(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    """Similar past runs (finalized, same task type, above MIN_SIMILARITY)."""
+    """Similar past runs (usable evidence, same task type, above MIN_SIMILARITY)
+    and the documentation passages the planner may cite (Phase 8)."""
     ctx = runtime.context
-    ctx.report("Finding similar experiments")
+    ctx.report("Finding similar experiments and documentation")
     similar = ctx.repo.retrieve_similar_experiments(
         _meta_features(state), k=config.RETRIEVAL_TOP_K, problem_type=state["requirement"].problem_type
     )
-    return {"similar_experiments": [{"run_id": s.record.run_id, "similarity": s.similarity} for s in similar]}
+    return {
+        "similar_experiments": [{"run_id": s.record.run_id, "similarity": s.similarity} for s in similar],
+        "knowledge_passages": _documentation(state, ctx),
+    }
+
+
+def _documentation(state: NPState, ctx: RunContext) -> list[dict]:
+    """Passages from the offline index. Retrieval is advisory: if it fails the
+    run continues without passages, and the failure is logged."""
+    if ctx.knowledge is None:
+        return []
+    requirement = state["requirement"]
+    try:
+        query = query_for(_meta_features(state), requirement.problem_type, glass_box=_plan_profile(state).glass_box)
+        passages = retrieve(
+            ctx.knowledge,
+            query,
+            problem_type=requirement.problem_type,
+            registry_components=registry_component_names(),
+        )
+    except Exception:
+        logger.warning("run=%s documentation retrieval failed; continuing without it", state["run_id"], exc_info=True)
+        return []
+    return [passage.to_state() for passage in passages]
 
 
 # --- one iteration -----------------------------------------------------------
@@ -278,6 +307,7 @@ def plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
             "balanced_class_weights": data_summary["balanced_class_weights"],
         },
         unsupported=list(state.get("unsupported_recommendations") or []),
+        passages=list(state.get("knowledge_passages") or []),
     )
     return {"candidate_plan": candidate, "plan_attempt": attempt}
 
@@ -299,6 +329,8 @@ def resolve_plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
     iteration = state.get("iteration", 0) + 1
     df = resources.dataframe(state)
 
+    retrieved_ids = {p["id"] for p in state.get("knowledge_passages") or []}
+    candidate, citation_warnings = check_citations(candidate, retrieved_ids)
     verification = verify_plan(candidate, requirement, df)
     if not verification.passed:
         failure = "; ".join(verification.failures)
@@ -336,7 +368,7 @@ def resolve_plan(state: NPState, runtime: Runtime[RunContext]) -> dict:
     base = {
         "failed_plan": None,
         "verification_failure": None,
-        "verification_warnings": verification.warnings,
+        "verification_warnings": [*verification.warnings, *citation_warnings],
         "unsupported_recommendations": substitutions,
     }
     if signature not in tried:
@@ -434,6 +466,7 @@ def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
                     "neuralpilot.iteration": str(iteration),
                     "neuralpilot.candidate_source": candidate.source,
                 },
+                warm_start_params=candidate.warm_start_params or None,
             )
         except Exception as exc:
             if index == 0:
@@ -506,6 +539,7 @@ def _score(
         interp_norm=validation.interp_norm,
         feasible=validation.feasible,
         constraint_results=validation.constraint_results,
+        best_params=attempt.best_params,
     )
     return validation, summary
 
@@ -540,15 +574,49 @@ def _candidate_entry(
 
 
 def reflect(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    runtime.context.report("Reflecting on the weakest pipeline block")
-    reflection = reflection_agent(state["last_validation"], client=runtime.context.llm)
-    return {"reflection": reflection, "weakest_block_history": [reflection.weakest_block]}
+    """Ask the Reflection Agent, then keep only the suggestions this run can use:
+    each must resolve against the registry to a configuration not yet executed.
+    A reflection whose suggestions are all dead proposes no change."""
+    ctx = runtime.context
+    ctx.report("Reflecting on the weakest pipeline block")
+    iteration = state.get("iteration", 0) + 1
+    attempts = list(state.get("attempts") or [])
+    reflection = reflection_agent(
+        state["last_validation"],
+        client=ctx.llm,
+        attempts=attempts,
+        iteration=iteration,
+        budget_left_s=budget_left_s(state),
+        unsupported=list(state.get("unsupported_recommendations") or []),
+    )
+
+    tried = {a.signature for a in attempts}
+    usable, substitutions = usable_suggestions(
+        reflection.suggestions, state["plan"], _plan_profile(state), iteration=iteration, tried=tried
+    )
+    kept = [suggestion for suggestion, _ in usable]
+    notes = list(reflection.guard_notes)
+    if len(kept) < len(reflection.suggestions):
+        notes.append(
+            f"{len(reflection.suggestions) - len(kept)} suggested component(s) were unsupported or already executed"
+        )
+    proposed = reflection.proposed_action
+    if reflection.suggestions and not kept:
+        proposed = "none"
+    reflection = reflection.model_copy(
+        update={"suggestions": kept, "guard_notes": notes, "proposed_action": proposed}
+    )
+    return {
+        "reflection": reflection,
+        "weakest_block_history": [reflection.weakest_block],
+        "unsupported_recommendations": substitutions,
+    }
 
 
 def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
-    """accept / refine / replan / stop. Guardrails (budget, iteration cap,
-    plateau, cancellation, unmet hard constraints) force the outcome without
-    the LLM having the last word."""
+    """accept / refine / replan / stop, by the deterministic rules in
+    `graph/decision.py`. No LLM is called here: every input is numeric or a
+    checked claim."""
     ctx = runtime.context
     ctx.report("Choosing whether to refine, replan, or finish")
     iteration = state.get("iteration", 0) + 1
@@ -557,21 +625,18 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
     execution = state["last_execution"]
     attempt = execution.attempt
     summary = state["last_summary"]
+    best = state.get("best")
 
-    if ctx.cancelled():
-        decision = DecisionOutput(decision="stop", rationale="Run cancelled by user.", forced=True)
-    else:
-        decision = decision_agent(
-            composite_score=validation.composite_score,
-            score_history=list(state.get("score_history") or []),
-            weakest_block=reflection.weakest_block,
-            weakest_block_history=list(state.get("weakest_block_history") or []),
-            iteration_count=iteration,
-            max_iterations=state.get("max_iterations", config.MAX_ITERATIONS),
-            budget_exhausted=budget_left_s(state) <= 0,
-            client=ctx.llm,
-        )
-        decision = _keep_searching_while_infeasible(decision, state, iteration)
+    decision = decide_route(
+        cancelled=ctx.cancelled(),
+        budget_exhausted=budget_left_s(state) <= 0,
+        iteration=iteration,
+        max_iterations=state.get("max_iterations", config.MAX_ITERATIONS),
+        best_feasible=best is not None and best.validation.feasible,
+        score_history=list(state.get("score_history") or []),
+        weakest_block_history=list(state.get("weakest_block_history") or []),
+        proposed_action=reflection.proposed_action,
+    )
 
     log = IterationLog(
         iteration=iteration,
@@ -603,23 +668,6 @@ def decide(state: NPState, runtime: Runtime[RunContext]) -> dict:
         "last_reflection": reflection if decision.decision == "refine" else None,
         "replan_requested": decision.decision == "replan",
     }
-
-
-def _keep_searching_while_infeasible(decision: DecisionOutput, state: NPState, iteration: int) -> DecisionOutput:
-    """Accepting a model that misses a hard constraint would finish the run
-    with a model the user cannot use. While iterations and budget remain,
-    the run refines instead (Phase 5)."""
-    best = state.get("best")
-    if decision.decision != "accept" or best is None or best.validation.feasible:
-        return decision
-    if iteration >= state.get("max_iterations", config.MAX_ITERATIONS) or budget_left_s(state) <= 0:
-        return decision
-    missed = ", ".join(violated_names(best.validation.constraint_results))
-    return DecisionOutput(
-        decision="refine",
-        rationale=f"Guardrail: the best attempt misses hard constraints ({missed}), so the run keeps searching.",
-        forced=True,
-    )
 
 
 # --- end of run --------------------------------------------------------------
@@ -671,6 +719,7 @@ def persist(state: NPState, runtime: Runtime[RunContext]) -> dict:
     df = resources.dataframe(state)
     meta_features = extract_meta_features(df, state["requirement"].target_column).to_dict()
     ctx.repo.save_run(reporting.finalized_record(state, meta_features))
+    ctx.repo.save_attempts(state["run_id"], list(state.get("attempts") or []))
     ctx.repo.save_unsupported(state["run_id"], list(state.get("unsupported_recommendations") or []))
     ctx.tracker.end("finalized")
     resources.release_run(state["run_id"])
@@ -693,6 +742,7 @@ def fail(state: NPState, runtime: Runtime[RunContext]) -> dict:
     except Exception:
         pass
     ctx.repo.save_run(reporting.failed_record(failed_state, meta_features))
+    ctx.repo.save_attempts(state["run_id"], list(state.get("attempts") or []))
     ctx.repo.save_unsupported(state["run_id"], list(state.get("unsupported_recommendations") or []))
     ctx.tracker.end("failed")
     resources.release_run(state["run_id"])

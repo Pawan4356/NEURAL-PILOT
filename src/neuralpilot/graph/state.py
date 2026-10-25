@@ -58,6 +58,7 @@ class NPState(TypedDict, total=False):
 
     # --- knowledge ---
     similar_experiments: list[dict]  # [{"run_id", "similarity"}]
+    knowledge_passages: list[dict]  # documentation passages the planner may cite (Phase 8)
 
     # --- planning (reset at the start of every iteration) ---
     plan_attempt: int

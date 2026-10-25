@@ -20,6 +20,7 @@ def isolated_run_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MLFLOW_ENABLED", False)
     monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
     monkeypatch.setattr(config, "MLFLOW_ARTIFACT_ROOT", str(tmp_path / "mlartifacts"))
+    monkeypatch.setattr(config, "KNOWLEDGE_DIR", tmp_path / "knowledge")  # no documentation index in tests
     monkeypatch.setattr(config, "LLM_SOURCE", "huggingface")
     monkeypatch.setattr(config, "LLM_BACKEND", "langchain")
     yield

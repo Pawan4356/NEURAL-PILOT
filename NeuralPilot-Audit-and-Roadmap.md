@@ -42,13 +42,60 @@
 | 4 — Registry v2, candidates, diversity | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
 | 5 — Constraint validator + ValidationReport v2 | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
 | 6 — MLflow tracking | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
-| 7 — Experiment memory v2 | ⬜ Not started | |
-| 8 — Documentation RAG | ⬜ Not started | |
-| 9 — Reflection v2 + deterministic routing | ⬜ Not started | |
-| 10 — External research | ⬜ Not started | |
+| 7 — Experiment memory v2 | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 8 — Documentation RAG | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 9 — Reflection v2 + deterministic routing | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 10 — External research | ⏸ Held by the owner (not started) | |
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
 
-**Next up:** Phase 7 (experiment memory v2) and Phase 8 (documentation RAG), which can run in parallel; Phase 9 (reflection v2, deterministic routing) builds on Phase 5's constraint results and on the candidate log from Phase 4. Before or alongside Phase 11, surface the new report fields in the UI: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id` and the per-iteration `candidates` log are in the final report but not yet rendered. Still owed from Phases 2–6: one manual run with a real `HF_TOKEN`, a LangSmith key, and `mlflow ui` (see "not verified" below).
+**Next up:** Phase 11 (final report, UI, E2E acceptance). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+
+### Phase 7 + 8 + 9 — done (2026-10-25)
+
+**Test status:** 312 tests pass (full suite, `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest`), up from 248 at the start of this phase. The one failure carried in from before (`langchain_nvidia_ai_endpoints` not installed in the venv) is gone: `uv add` synced it. `ruff check --select F,E9` is clean on everything this phase touched; two unused `pytest` imports in `tests/test_execution.py` and `tests/test_verification.py` predate this phase and were left alone.
+
+**Where the code lives**
+- Phase 7 (experiment memory v2)
+  - `memory/migrations.py` — schema v3: `runs.evidence_quality`, the `attempts` table (one row per signature), and the backfill that marks legacy churn runs without a report as `suspect_leakage`.
+  - `memory/store.py` — `ExperimentRepository` (moved from `repository.py`, which is now a re-export shim), `save_attempts`/`attempts_for_run`, and `is_usable_evidence` (finalized, not suspect, every plan component still in the registry, final model feasible).
+  - `memory/similarity.py` — `memory_vector` v2 (10 dimensions) and `similarity`. Legacy records read the new dimensions as neutral 0.
+  - `meta_features.py` — `text_ratio`, `datetime_present`, `mean_abs_skew_numeric`.
+  - Warm start: `candidates.WarmStart`, `CandidatePlan.warm_start_params`, `AttemptSummary.best_params`; `engine/hpo.py` declares the search space as Optuna distributions, `within_space` filters stored params against them, and `tune` enqueues the survivors as the first trial; `engine/runner.py` threads `warm_start_params` through.
+  - `scripts/benchmark_memory.py` — memory-on versus memory-off benchmark.
+  - Tests: `tests/test_memory.py` (17 tests), `tests/test_candidates.py` (+2).
+- Phase 8 (documentation RAG)
+  - `knowledge/` — `chunks.py` (heading sections, 450-word windows with 60-word overlap, content-hash ids), `fetch.py` (allow-listed hosts, main-content extraction, stdlib HTML parser), `sources.py` (validates `knowledge_sources/*.yaml`: host, registry component ids, task types, trust), `store.py` (Chroma wrapper; `open_index()` returns `None` when no index exists), `registry_cards.py` (one card per registry component, rebuilt on every ingest), `retrieve.py` (templated dataset query, task and registry filters, `check_citations`), `ingest.py` (offline CLI), `evaluate.py` (recall@5 and MRR on labelled queries).
+  - `knowledge_sources/` — 15 official pages in five YAML files. `tests/rag_eval/queries.yaml` — 36 labelled queries.
+  - Planner: `PlanSpec.evidence_ids`; the prompt lists passages with their ids; `resolve_plan` drops ids that were not retrieved. `graph/context.py` carries the index; `retrieve_knowledge` fills `knowledge_passages`; a retrieval failure is logged and the run continues without passages.
+  - Tests: `tests/test_rag.py` (27 tests, offline, using a local hashing embedding).
+- Phase 9 (reflection v2 and deterministic routing)
+  - `schemas.py` — `ReflectionOutput` v2 (`diagnosis`, `violated_constraints`, `proposed_action`, `suggestions`, `expected_effect`, `confidence`, `guard_notes`; all optional, so the old two-field reply still parses), `ReflectionSuggestion`, `ProposedAction`.
+  - `agents/reflection_agent.py` — prompt shows failing constraints and attempts executed so far; a claimed violation that does not match a failing constraint is sent back once, and anything still unmatched is dropped and noted.
+  - `reflection_guard.py` — `split_violated_claims`, `suggestion_plan`, `usable_suggestions` (resolved through the registry, de-duplicated against executed signatures). The `reflect` node keeps only usable suggestions; if every suggestion is dead, `proposed_action` becomes `none`.
+  - `graph/decision.py` — `decide_route`, a pure function: cancel → budget → iteration cap → accept → plateau → refine → replan. Table-tested in `tests/test_decision.py`.
+  - `agents/decision_agent.py` deleted. The `decide` node is deterministic.
+  - Tests: `tests/test_reflection_v2.py` (14 tests), `tests/test_decision.py` (14 tests).
+
+**Verification**
+- Real ingestion (`python -m neuralpilot.knowledge.ingest`): 15 pages, 313 passages, 17 registry cards; index size 330, stored in `runs/knowledge/chroma` (git-ignored). The first run downloads Chroma's default embedding model (`all-MiniLM-L6-v2`, about 80 MB).
+- Retrieval on the 36 labelled queries (labels written from page contents before any retrieval ran): recall@5 = 0.944, MRR = 0.907. The two misses are both target-encoding queries ("target encoding ... cross fitting", "why target encoding can leak"). Not tuned after seeing results.
+- Memory benchmark (churn training file as the past run, churn testing file as the target, GradientBoosting, two seeds): BENCHMARK_RESULT_PLACEHOLDER
+
+**Deviations from the plan (deliberate)**
+- **Every run now takes at least two iterations unless a guardrail stops it earlier.** Accept is never granted on iteration 1 (Phase 9 "no LLM-only stop/accept on iteration 1", read as requiring a measured change). A first plan that is already good therefore pays for one more iteration of HPO. Flagged for the owner to decide whether iteration 1 may accept when the best attempt is feasible and nothing is proposed.
+- **The LLM Decision Agent is removed.** Its narrative role is not kept; the decision rationale is the rule's own text.
+- **Refine needs a proposed change.** A reflection with only the old fields (no `proposed_action`) now replans rather than refines.
+- **Legacy migration keys on the audit's rule, not on the leakage check itself.** A finalized run with no stored report whose dataset name contains "churn" is marked `suspect_leakage`. The workspace database holds no rows, so the migration is tested only on a synthetic legacy database.
+- **Phase 7 features not built:** `n_id_columns_dropped` (ID detection lives in the engine's profiling, not in meta-features).
+- **Phase 8 features not built:** MMR diversification (passages are the top-k nearest that pass the filters), the `lessons` collection, `scripts/ingest_docs.py` (the module CLI replaces it), and the research path (Phase 10).
+- **Warm starts are one trial, not a seeded study.** The best stored parameters are enqueued as the first trial and count toward the trial cap. Only the same model family's parameters transfer.
+- **Suggestions are advisory.** Usable reflection suggestions go to the planner's refine prompt; they are not executed directly.
+
+**Known limitations / open items carried forward**
+- Live checks still owed from Phases 2–9: a real HF run (this exercises the reflection v2 prompt and the passages with a real model), a LangSmith trace, `mlflow ui`, and building the documentation index on the target machine.
+- Passage quality on the two target-encoding misses is unexplained; the index has not been inspected for those pages.
+- Reflection's `expected_effect` and `confidence` are recorded but nothing reads them yet.
+- The memory benchmark ran on one dataset pair with two seeds. It shows whether the warm start works on this pair, not whether memory helps in general.
 
 ### Phase 4 + 5 + 6 — done (2026-10-24)
 
@@ -1353,7 +1400,7 @@ data/                        uploads (retention policy: delete after N days, con
 - Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) ✅ done 2026-10-24 → Phase 3 (LangGraph port) ✅ done 2026-10-24.
 - Phase 6 (MLflow) after Phases 1 and 4.
 
-**Then (P2):** Phase 7 (memory v2 + benchmark) ∥ Phase 8 (doc RAG); Phase 9 (reflection v2/routing); run queue, upload limits, restart-safe run listing.
+**Then (P2):** ✅ Phase 7 (memory v2 + benchmark) ∥ ✅ Phase 8 (doc RAG); ✅ Phase 9 (reflection v2/routing); run queue, upload limits, restart-safe run listing.
 
 **Then (P3):** Phase 10 (web research, off by default); Pareto UI; parallel candidate fan-out; reranker.
 

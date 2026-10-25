@@ -1,15 +1,12 @@
 """Phase 5: constraint model, checks, feasibility-first selection and the
 run-level validation report (Deliverable 9.2-9.4)."""
 
-import time
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from neuralpilot.graph.nodes import _keep_searching_while_infeasible
 from neuralpilot.orchestrator import create_run, run_to_completion
 from neuralpilot.repository import ExperimentRepository
 from neuralpilot.schemas import (
@@ -18,7 +15,6 @@ from neuralpilot.schemas import (
     ConstraintResult,
     ConstraintWeights,
     Constraint,
-    DecisionOutput,
     MetricSummary,
     PlanSpec,
     PreprocessingStep,
@@ -178,24 +174,6 @@ def test_pareto_front_keeps_attempts_nobody_beats_on_every_objective():
     assert pareto_front([a, b, c]) == ["a", "c"]
 
 
-def test_the_guard_keeps_refining_while_the_best_attempt_is_infeasible():
-    infeasible = SimpleNamespace(
-        validation=SimpleNamespace(feasible=False, constraint_results=[_result("max_latency_ms_per_1k", False, 90, 50)])
-    )
-    state = {"best": infeasible, "max_iterations": 5, "budget_s": 900, "budget_started_at": None}
-    accept = DecisionOutput(decision="accept", rationale="looks good")
-
-    overridden = _keep_searching_while_infeasible(accept, {**state, "budget_started_at": time.time()}, iteration=1)
-    assert overridden.decision == "refine" and overridden.forced
-    assert "max_latency_ms_per_1k" in overridden.rationale
-
-    last_iteration = _keep_searching_while_infeasible(accept, {**state, "max_iterations": 1}, iteration=1)
-    assert last_iteration.decision == "accept"
-
-    feasible = SimpleNamespace(validation=SimpleNamespace(feasible=True, constraint_results=[]))
-    assert _keep_searching_while_infeasible(accept, {**state, "best": feasible}, iteration=1) is accept
-
-
 # --- end to end: an impossible limit ends in an honest, unacceptable report --
 
 
@@ -238,8 +216,9 @@ def test_impossible_hard_constraint_finishes_with_an_unacceptable_report(tmp_pat
         {
             RequirementSpec: [requirement],
             PlanSpec: [plan],
-            ReflectionOutput: [ReflectionOutput(weakest_block="model_family", rationale="r")],
-            DecisionOutput: [DecisionOutput(decision="accept", rationale="fine")],
+            ReflectionOutput: [
+                ReflectionOutput(weakest_block="model_family", rationale="r", proposed_action="change_model")
+            ],
         }
     )
     repo = ExperimentRepository(db_path=tmp_path / "exp.sqlite3")
@@ -256,4 +235,5 @@ def test_impossible_hard_constraint_finishes_with_an_unacceptable_report(tmp_pat
     failing = [r for r in report["constraint_table"] if not r["passed"]]
     assert [r["name"] for r in failing] == ["max_latency_ms_per_1k"]
     assert report["final_decision"] == "stop" and report["final_decision_forced"] is True  # iteration cap
-    assert state.iteration_logs[0].decision == "refine" and state.iteration_logs[0].decision_forced
+    # Iteration 1 cannot accept an infeasible model: the reflection's change makes it a refine, not a stop.
+    assert state.iteration_logs[0].decision == "refine" and not state.iteration_logs[0].decision_forced

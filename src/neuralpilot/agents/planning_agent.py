@@ -44,7 +44,8 @@ interaction_only}} (only applied when there are <= {config.POLYNOMIAL_MAX_INPUT_
 features); SelectKBest {{k}}; PCA {{n_components}}. n_trials is capped at {config.HPO_MAX_TRIALS}.
 
 Scores you see are cross-validated on the training split for this dataset. Measured results \
-from the current run always outweigh similar past experiments.
+from the current run always outweigh similar past experiments and the documentation passages, \
+which describe how components behave in general.
 
 Produce exactly one pipeline plan (no A/B/C alternatives). Give each step a one-line \
 rationale. Respond with ONLY a JSON object matching this schema, no prose, no markdown \
@@ -54,8 +55,11 @@ fences:
   "feature_engineering": [{{"name": string, "params": object, "rationale": string}}, ...],
   "model_family": string,
   "tuning": {{"component": string, "n_trials": integer, "rationale": string}},
-  "rationale": string
+  "rationale": string,
+  "evidence_ids": [string]
 }}
+"evidence_ids" lists the ids of the documentation passages (if any are given) that your plan relies on; \
+use only ids that are listed.
 Always include exactly one "encoder" and one "scaler" preprocessing step.
 """
 
@@ -100,6 +104,11 @@ def _format_unsupported(items: list[UnsupportedRecommendation]) -> str:
         "Components the registry could not use in this run (prefer the listed alternative, "
         "or a name from the available list):\n" + "\n".join(lines)
     )
+
+
+def _format_passages(passages: list[dict]) -> str:
+    lines = [f"- id={p['id']} ({p['title']}, section: {p['section']}): {p['text']}" for p in passages]
+    return "Documentation passages (curated and official):\n" + "\n".join(lines)
 
 
 def _base_user_prompt(
@@ -147,9 +156,12 @@ def generate_plan(
     rejection: str | None = None,
     dataset_profile: dict | None = None,
     unsupported: list[UnsupportedRecommendation] | None = None,
+    passages: list[dict] | None = None,
 ) -> PlanSpec:
     client = client or get_default_client()
     user_prompt = _base_user_prompt(requirement, meta_features, similar_experiments, dataset_profile)
+    if passages:
+        user_prompt += f"\n{_format_passages(passages)}\n"
 
     if unsupported:
         user_prompt += f"\n{_format_unsupported(unsupported)}\n"
@@ -185,6 +197,14 @@ def generate_plan(
             f"(preprocessing/feature_engineering/model_family/tuning not named as weakest) "
             f"identical to the previous plan.\n"
         )
+        if reflection.suggestions:
+            suggested = "; ".join(
+                f"{s.category} {s.component} {s.params} ({s.rationale})" for s in reflection.suggestions
+            )
+            user_prompt += (
+                f"The Reflection Agent suggested these changes (already checked against the registry and "
+                f"not yet executed): {suggested}\n"
+            )
 
     plan = client.complete_json(SYSTEM_PROMPT, user_prompt, PlanSpec)
     plan.iteration = iteration

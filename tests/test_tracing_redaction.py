@@ -59,9 +59,10 @@ def _llm_replies():
         "tuning": {"component": "NoTuning", "n_trials": 0, "rationale": "r"},
         "rationale": "r",
     }
+    # Iteration 1 proposes nothing, so the rules replan; iteration 2 plans a new family and is accepted.
+    second_plan = {**plan, "model_family": "GradientBoosting"}
     reflection = {"weakest_block": "model_family", "rationale": "r"}
-    decision = {"decision": "accept", "rationale": "good enough"}
-    return [AIMessage(json.dumps(r)) for r in (requirement, plan, reflection, decision)]
+    return [AIMessage(json.dumps(r)) for r in (requirement, plan, reflection, second_plan, reflection)]
 
 
 @pytest.fixture
@@ -121,10 +122,10 @@ def test_traced_run_sends_no_cell_values_or_secrets(tmp_path, dataset, monkeypat
     assert SECRET_TOKEN not in sent
 
     names = {p.get("name") for p in capture.payloads}
-    assert {"neuralpilot_run", "requirement_agent", "planning_agent", "reflection_agent", "decision_agent"} <= names
-    assert {"understand", "plan", "execute", "finalize"} <= names  # graph nodes are spans
+    assert {"neuralpilot_run", "requirement_agent", "planning_agent", "reflection_agent"} <= names
+    assert {"understand", "plan", "execute", "decide", "finalize"} <= names  # graph nodes are spans
     llm_spans = [p for p in capture.payloads if p.get("run_type") == "llm"]
-    assert len(llm_spans) >= 4
+    assert len(llm_spans) >= 5
     assert all(span["extra"]["metadata"]["run_id"] == state.run_id for span in llm_spans)
     root = next(p for p in capture.payloads if p.get("name") == "neuralpilot_run")
     assert root["extra"]["metadata"]["run_id"] == state.run_id

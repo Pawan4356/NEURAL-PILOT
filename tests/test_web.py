@@ -139,6 +139,6 @@ def test_full_web_flow_runs_the_graph_through_clarification(tmp_path, monkeypatc
     assert client.post(f"/api/runs/{run_id}/clarify", data={"answer": "label"}).status_code == 200
     body = wait_for(run_id, "finalized")
     assert body["final_report"]["target_column"] == "label"
-    assert body["iteration_logs"][0]["decision"] == "accept"
+    assert body["iteration_logs"][-1]["decision"] == "accept"
     assert client.get(f"/api/runs/{run_id}/model").status_code == 200
     web_app.RUNS.clear()

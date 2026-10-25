@@ -160,6 +160,15 @@ MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{RUNS_DI
 MLFLOW_ARTIFACT_ROOT = os.environ.get("NEURALPILOT_MLFLOW_ARTIFACTS", str(RUNS_DIR / "mlartifacts"))
 MLFLOW_EXPERIMENT = "neuralpilot"
 
+# --- Documentation index (Phase 8, Deliverable 7) ---
+# Built offline by `python -m neuralpilot.knowledge.ingest`. Until it exists,
+# the planner gets no passages and runs exactly as before.
+KNOWLEDGE_DIR = RUNS_DIR / "knowledge"
+KNOWLEDGE_SOURCES_DIR = PROJECT_ROOT / "knowledge_sources"
+RAG_ENABLED = os.environ.get("NEURALPILOT_RAG", "on").strip().lower() in ("on", "1", "true")
+RAG_MAX_PASSAGES = 6  # passages shown to the planner
+RAG_FETCH_N = 24  # nearest chunks read before the task and registry filters
+
 # --- LLM transport (Phase 2) ---
 # "langchain" routes calls through a LangChain chat model; "hf" is the
 # original huggingface_hub client, kept as a rollback.

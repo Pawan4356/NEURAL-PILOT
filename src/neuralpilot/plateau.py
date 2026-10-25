@@ -12,7 +12,7 @@ from __future__ import annotations
 from . import config
 
 
-def _relative_improvement_pct(previous: float, current: float) -> float:
+def relative_improvement_pct(previous: float, current: float) -> float:
     if previous == 0:
         return 0.0 if current == 0 else 100.0
     return ((current - previous) / abs(previous)) * 100.0
@@ -24,7 +24,7 @@ def detect_plateau(score_history: list[float], weakest_block_history: list[str])
     # Condition (a): needs at least n+1 scores to have n consecutive deltas.
     if len(score_history) >= n + 1:
         deltas = [
-            _relative_improvement_pct(score_history[i - 1], score_history[i])
+            relative_improvement_pct(score_history[i - 1], score_history[i])
             for i in range(len(score_history) - n, len(score_history))
         ]
         if all(delta < config.PLATEAU_SCORE_DELTA_PCT for delta in deltas):

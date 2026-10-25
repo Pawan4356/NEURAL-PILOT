@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..engine.tracking import NoopTracker, Tracker
+from ..knowledge.store import KnowledgeStore
 from ..llm_client import LLMClient
 from ..repository import ExperimentRepository
 
@@ -32,6 +33,7 @@ class RunContext:
     llm: LLMClient | None = None  # None = the process-wide default client
     run_id: str = ""
     tracker: Tracker = field(default_factory=NoopTracker)  # MLflow or no-op (Phase 6)
+    knowledge: KnowledgeStore | None = None  # documentation index, None until it is built (Phase 8)
 
     def report(self, task: str, tag: str = "agent") -> None:
         """Tell the UI what the run is doing right now."""

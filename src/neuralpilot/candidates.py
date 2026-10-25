@@ -8,7 +8,8 @@ whichever family the planner happened to name. Sources, in priority order:
 - profile:  a family suited to the data size (histogram boosting for large
             tables, extra trees for small ones);
 - memory:   the plan of a similar past run, if one exists. It is only a
-            warm start: it is evaluated like any other candidate.
+            warm start: it is evaluated like any other candidate, and its
+            stored hyperparameters seed the search (Phase 7).
 
 Challengers never repeat an executed signature, never break a glass-box
 requirement (plan resolution substitutes those), and are capped at
@@ -18,6 +19,7 @@ requirement (plan resolution substitutes those), and are capped at
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 
 from . import config
 from .engine import plan_signature
@@ -27,13 +29,21 @@ from .schemas import CandidatePlan, CandidateSource, PlanSpec, UnsupportedRecomm
 BASELINE_FAMILIES = ("LinearModel", "DecisionTree")
 
 
+@dataclass(frozen=True)
+class WarmStart:
+    """A similar past run's plan, and the hyperparameters its model found."""
+
+    plan: PlanSpec
+    best_params: dict = field(default_factory=dict)
+
+
 def build_candidates(
     planner_plan: PlanSpec,
     profile: PlanProfile,
     *,
     iteration: int,
     tried: set[str],
-    memory_plans: Iterable[PlanSpec] = (),
+    memory_plans: Iterable[WarmStart] = (),
     prior_evidence: dict[str, float] | None = None,
     max_candidates: int | None = None,
 ) -> tuple[list[CandidatePlan], list[UnsupportedRecommendation]]:
@@ -53,7 +63,7 @@ def build_candidates(
         if len(candidates) >= max_candidates:
             break
         # The first proposal of each source that is usable and new is taken.
-        for proposal in proposals:
+        for proposal, warm_params in proposals:
             result = resolve(
                 proposal, profile, iteration=iteration, source=source, prior_evidence=prior_evidence
             )
@@ -65,19 +75,32 @@ def build_candidates(
             if signature in seen:
                 continue
             seen.add(signature)
-            candidates.append(CandidatePlan(source=source, plan=result.plan))
+            # Stored hyperparameters only transfer to the same model family.
+            same_family = result.plan.model_family == proposal.model_family
+            candidates.append(
+                CandidatePlan(
+                    source=source,
+                    plan=result.plan,
+                    warm_start_params=dict(warm_params) if same_family else {},
+                )
+            )
             break
     return candidates, substitutions
 
 
 def _proposals_by_source(
-    planner_plan: PlanSpec, profile: PlanProfile, memory_plans: Iterable[PlanSpec]
-) -> list[tuple[CandidateSource, list[PlanSpec]]]:
+    planner_plan: PlanSpec, profile: PlanProfile, memory_plans: Iterable[WarmStart]
+) -> list[tuple[CandidateSource, list[tuple[PlanSpec, dict]]]]:
+    """Each proposal is (plan, warm-start params). Only memory proposals carry params."""
     return [
-        ("baseline", [_with_family(planner_plan, family) for family in BASELINE_FAMILIES]),
-        ("profile", [_with_family(planner_plan, family) for family in _profile_families(profile)]),
+        ("baseline", [_no_params(_with_family(planner_plan, family)) for family in BASELINE_FAMILIES]),
+        ("profile", [_no_params(_with_family(planner_plan, family)) for family in _profile_families(profile)]),
         ("memory", [_warm_start(planner_plan, past) for past in memory_plans]),
     ]
+
+
+def _no_params(plan: PlanSpec) -> tuple[PlanSpec, dict]:
+    return plan, {}
 
 
 def _profile_families(profile: PlanProfile) -> list[str]:
@@ -94,12 +117,13 @@ def _with_family(plan: PlanSpec, family: str) -> PlanSpec:
     )
 
 
-def _warm_start(planner_plan: PlanSpec, past: PlanSpec) -> PlanSpec:
+def _warm_start(planner_plan: PlanSpec, past: WarmStart) -> tuple[PlanSpec, dict]:
     """A similar run's model and preprocessing, with this iteration's tuning."""
-    return past.model_copy(
+    plan = past.plan.model_copy(
         update={
             "tuning": planner_plan.tuning,
             "iteration": planner_plan.iteration,
             "rationale": "warm start from a similar past experiment",
         }
     )
+    return plan, past.best_params

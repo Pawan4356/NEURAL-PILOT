@@ -237,15 +237,27 @@ def run_attempt(
     cancel_event: threading.Event | None = None,
     tracker: Tracker | None = None,
     tracking_tags: dict[str, str] | None = None,
+    warm_start_params: dict | None = None,
 ) -> AttemptOutcome:
     """Measure one plan. The tracker, if given, gets one child run for this
-    attempt; it is always closed, even when the attempt raises."""
+    attempt; it is always closed, even when the attempt raises. Warm-start
+    params (Phase 7) seed the search; values the search space cannot express
+    are dropped by the tuner."""
     budget = budget or AttemptBudget()
     tracker = tracker or NoopTracker()
     tracker_closed = False
     try:
         return _run_attempt(
-            plan, prepared, budget, generate_shap, use_gpu, progress_callback, cancel_event, tracker, tracking_tags
+            plan,
+            prepared,
+            budget,
+            generate_shap,
+            use_gpu,
+            progress_callback,
+            cancel_event,
+            tracker,
+            tracking_tags,
+            warm_start_params,
         )
     except BaseException:
         tracker.end_attempt("failed")
@@ -266,6 +278,7 @@ def _run_attempt(
     cancel_event: threading.Event | None,
     tracker: Tracker,
     tracking_tags: dict[str, str] | None,
+    warm_start_params: dict | None,
 ) -> AttemptOutcome:
     problem_type = prepared.problem_type
     diagnostics: list[BlockDiagnostics] = []
@@ -393,6 +406,7 @@ def _run_attempt(
         seed=prepared.seed,
         progress_callback=progress_callback,
         cancel_event=cancel_event,
+        warm_start_params=warm_start_params,
     )
     diagnostics.append(
         BlockDiagnostics(

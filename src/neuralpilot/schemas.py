@@ -26,7 +26,7 @@ ConstraintName = Literal[
     "interpretability",
     "max_cv_std",
 ]
-CandidateSource = Literal["planner", "baseline", "profile", "memory"]
+CandidateSource = Literal["planner", "baseline", "profile", "memory", "reflection"]
 
 
 class Constraint(BaseModel):
@@ -145,6 +145,9 @@ class PlanSpec(BaseModel):
     tuning: TuningStrategy
     rationale: str = ""
     iteration: int = 1
+    # Ids of the documentation passages this plan relies on (Phase 8). Ids that
+    # were not retrieved for this run are dropped before the plan executes.
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class CandidatePlan(BaseModel):
@@ -153,6 +156,9 @@ class CandidatePlan(BaseModel):
 
     source: CandidateSource
     plan: PlanSpec
+    # Phase 7 warm start: hyperparameters a similar past run found for this
+    # model family. Trial 1 of the search starts from them, if they still fit.
+    warm_start_params: dict = Field(default_factory=dict)
 
 
 UnsupportedReason = Literal[
@@ -269,6 +275,7 @@ class AttemptSummary(BaseModel):
     interp_norm: float = 0.5
     feasible: bool = True
     constraint_results: list[ConstraintResult] = Field(default_factory=list)
+    best_params: dict = Field(default_factory=dict)  # stored for warm starts (Phase 7)
 
 
 class ValidationReport(BaseModel):
@@ -287,11 +294,44 @@ class ValidationReport(BaseModel):
     feasible: bool = True
 
 
+ProposedAction = Literal[
+    "change_model",
+    "change_preprocessing",
+    "change_feature_engineering",
+    "address_imbalance",
+    "expand_search",
+    "reduce_complexity",
+    "none",
+]
+
+
+class ReflectionSuggestion(BaseModel):
+    """One concrete change the Reflection Agent proposes. It is checked against
+    the registry and the executed attempts before anything uses it."""
+
+    category: Literal["encoder", "scaler", "model_family", "tuner", "feature_engineering"]
+    component: str
+    params: dict = Field(default_factory=dict)
+    rationale: str = ""
+
+
 class ReflectionOutput(BaseModel):
-    """Reflection Agent output (§3.3)."""
+    """Reflection Agent output (§3.3, Phase 9 / Deliverable 9.5).
+
+    The first two fields are the original contract. The rest are optional, so
+    a reply that only names a weakest block still parses. `violated_constraints`
+    must name constraints the validation report shows as failing; `guard_notes`
+    records what the guard removed."""
 
     weakest_block: WeakestBlock
     rationale: str
+    diagnosis: str = ""
+    violated_constraints: list[str] = Field(default_factory=list)
+    proposed_action: ProposedAction = "none"
+    suggestions: list[ReflectionSuggestion] = Field(default_factory=list)
+    expected_effect: str = ""
+    confidence: float = Field(0.5, ge=0.0, le=1.0)
+    guard_notes: list[str] = Field(default_factory=list)
 
 
 class DecisionOutput(BaseModel):

@@ -1,0 +1,48 @@
+# Official scikit-learn user-guide pages. Each entry names the registry
+# components its text explains, and the task types it applies to.
+library: scikit-learn
+pages:
+  - url: https://scikit-learn.org/stable/modules/preprocessing.html
+    title: "scikit-learn user guide: preprocessing"
+    component_ids: [OneHotEncoder, OrdinalEncoder, StandardScaler, MinMaxScaler, RobustScaler]
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/preprocessing_targets.html
+    title: "scikit-learn user guide: target encoding"
+    component_ids: [TargetEncoder]
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/impute.html
+    title: "scikit-learn user guide: missing values"
+    component_ids: []
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/linear_model.html
+    title: "scikit-learn user guide: linear models"
+    component_ids: [LinearModel]
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/tree.html
+    title: "scikit-learn user guide: decision trees"
+    component_ids: [DecisionTree]
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/ensemble.html
+    title: "scikit-learn user guide: ensembles of trees"
+    component_ids: [RandomForest, ExtraTrees, GradientBoosting, HistGradientBoosting]
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/cross_validation.html
+    title: "scikit-learn user guide: cross-validation"
+    component_ids: []
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/model_evaluation.html
+    title: "scikit-learn user guide: model evaluation and scoring"
+    component_ids: []
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/feature_selection.html
+    title: "scikit-learn user guide: feature selection"
+    component_ids: []
+    trust: official
+  - url: https://scikit-learn.org/stable/modules/decomposition.html
+    title: "scikit-learn user guide: principal component analysis"
+    component_ids: []
+    trust: official
+  - url: https://scikit-learn.org/stable/common_pitfalls.html
+    title: "scikit-learn user guide: common pitfalls and data leakage"
+    component_ids: []
+    trust: official

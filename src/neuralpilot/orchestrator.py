@@ -39,6 +39,7 @@ from .engine import load_dataset
 from .engine.tracking import make_tracker
 from .graph import RunContext, compiled_graph, resources
 from .graph.routing import recursion_limit
+from .knowledge.store import open_index
 from .llm_client import LLMClient
 from .meta_features import extract_meta_features
 from .repository import ExperimentRepository
@@ -130,6 +131,7 @@ def run_to_completion(
         llm=llm,
         run_id=state.run_id,
         tracker=make_tracker(_mlflow_parent(graph, graph_config)),
+        knowledge=open_index(),
     )
     try:
         should_run, graph_input = _next_input(graph, graph_config, state)

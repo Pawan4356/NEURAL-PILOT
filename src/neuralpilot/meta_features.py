@@ -1,8 +1,8 @@
 """Dataset meta-feature extraction.
 
 Produces two things from a pandas DataFrame:
-- a small numeric vector used for nearest-neighbor retrieval (§5) and
-  plateau-independent similarity lookups
+- the meta-features used by experiment memory. The scaled retrieval vector
+  is built from them in `memory/similarity.py`
 - a column-level summary (names/dtypes/cardinality — never raw rows) that
   is safe to hand to an LLM per the Requirement Understanding Agent's
   input contract (§3.1)
@@ -10,7 +10,6 @@ Produces two things from a pandas DataFrame:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -29,6 +28,11 @@ class DatasetMetaFeatures:
     max_cardinality: int = 0  # largest categorical feature cardinality
     minority_class_ratio: float | None = None  # classification-like targets
     target_skew: float | None = None  # numeric targets
+    # Meta-features v2 (Phase 7). Records stored before v2 lack these fields
+    # and get these defaults, which the similarity vector treats as neutral.
+    text_ratio: float = 0.0  # share of high-cardinality free-text features
+    datetime_present: bool = False
+    mean_abs_skew_numeric: float | None = None  # mean |skew| over numeric features
 
     def vector(self) -> list[float]:
         """Legacy raw 5-dim vector, kept in stored records for reference.
@@ -67,6 +71,26 @@ def is_categorical_column(series: pd.Series) -> bool:
         nunique = series.nunique(dropna=True)
         return nunique <= 20 and nunique / max(len(series), 1) < 0.05
     return False
+
+
+def is_text_column(series: pd.Series) -> bool:
+    """Free text: string-like values that are mostly distinct. Such a column
+    is not a useful category, so it is counted apart from categoricals."""
+    if not (pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)):
+        return False
+    nunique = series.nunique(dropna=True)
+    return nunique > 50 and nunique / max(len(series), 1) > 0.5
+
+
+def _mean_abs_skew(df: pd.DataFrame, columns: list[str]) -> float | None:
+    """Mean absolute skew of the numeric feature columns, or None when there
+    are none (or none has a finite skew)."""
+    skews = []
+    for col in columns:
+        skew = df[col].astype(float).skew()
+        if pd.notna(skew):
+            skews.append(abs(float(skew)))
+    return float(sum(skews) / len(skews)) if skews else None
 
 
 def extract_meta_features(
@@ -111,6 +135,13 @@ def extract_meta_features(
         for col in df.columns
     ]
 
+    text_cols = [c for c in feature_cols if is_text_column(df[c])]
+    numeric_cols = [
+        c
+        for c in feature_cols
+        if pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c])
+    ]
+
     return DatasetMetaFeatures(
         n_rows=n_rows,
         n_cols=n_cols,
@@ -121,69 +152,8 @@ def extract_meta_features(
         max_cardinality=max_cardinality,
         minority_class_ratio=minority_class_ratio,
         target_skew=target_skew,
+        text_ratio=len(text_cols) / len(feature_cols) if feature_cols else 0.0,
+        datetime_present=any(pd.api.types.is_datetime64_any_dtype(df[c]) for c in feature_cols),
+        mean_abs_skew_numeric=_mean_abs_skew(df, numeric_cols),
     )
 
-
-# Names of the memory_vector() dimensions, in order.
-MEMORY_VECTOR_FEATURES = (
-    "log_rows",
-    "log_features",
-    "categorical_ratio",
-    "missing_ratio",
-    "log_max_cardinality",
-    "n_classes",
-    "target_shape",
-)
-
-
-def _clip01(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
-
-
-def memory_vector(meta: dict[str, Any], problem_type: str | None = None) -> list[float]:
-    """Scaled meta-feature vector for experiment-memory retrieval.
-
-    Each dimension is mapped to [0, 1] with a fixed, documented transform
-    (not fitted to the stored runs, so scaling never drifts as memory
-    grows). Raw row counts no longer dominate the distance:
-    - log_rows            log10(n_rows) / 7           (10 rows .. 10M rows)
-    - log_features        log10(n_features) / 4       (1 .. 10k features)
-    - categorical_ratio   share of categorical columns
-    - missing_ratio       missing_pct / 100
-    - log_max_cardinality log10(max categorical cardinality + 1) / 5
-    - n_classes           min(n_classes, 20) / 20     (0 for regression)
-    - target_shape        classification: 2 x minority class share;
-                          regression: min(|target skew| / 5, 1)
-
-    Works on stored dicts from older records too, using neutral defaults
-    for fields they do not have.
-    """
-    n_rows = max(int(meta.get("n_rows") or 1), 1)
-    n_features = max(int(meta.get("n_cols") or 2) - 1, 1)
-    max_cardinality = meta.get("max_cardinality")
-    if max_cardinality is None:  # older records: derive from the column summary
-        max_cardinality = max(
-            (int(c.get("n_unique", 0)) for c in meta.get("columns", []) if c.get("is_categorical")), default=0
-        )
-    n_classes = int(meta.get("n_classes") or 0)
-
-    if problem_type == "regression":
-        class_dim = 0.0
-        skew = meta.get("target_skew")
-        shape_dim = _clip01(abs(skew) / 5.0) if skew is not None else 0.0
-    else:
-        class_dim = _clip01(min(n_classes, 20) / 20.0)
-        minority = meta.get("minority_class_ratio")
-        if minority is None:
-            minority = 1.0 / n_classes if n_classes >= 2 else 0.5
-        shape_dim = _clip01(2.0 * float(minority))
-
-    return [
-        _clip01(math.log10(n_rows) / 7.0),
-        _clip01(math.log10(n_features) / 4.0),
-        _clip01(meta.get("categorical_ratio") or 0.0),
-        _clip01((meta.get("missing_pct") or 0.0) / 100.0),
-        _clip01(math.log10(max_cardinality + 1) / 5.0),
-        class_dim,
-        shape_dim,
-    ]

@@ -166,9 +166,14 @@ def test_checkpoint_holds_typed_models_and_no_dataframes(csv, repo):
 
 
 def test_resume_after_crash_does_not_rerun_completed_attempts(csv, repo, monkeypatch):
-    executed = []
+    executed = []  # the plan each measured attempt ran, as JSON
     real_run_attempt = nodes.run_attempt
-    monkeypatch.setattr(nodes, "run_attempt", lambda *a, **kw: executed.append(1) or real_run_attempt(*a, **kw))
+
+    def recording_run_attempt(plan, *args, **kwargs):
+        executed.append(plan.model_dump_json())
+        return real_run_attempt(plan, *args, **kwargs)
+
+    monkeypatch.setattr(nodes, "run_attempt", recording_run_attempt)
 
     crashes = []
     real_reflect = nodes.reflection_agent
@@ -193,5 +198,5 @@ def test_resume_after_crash_does_not_rerun_completed_attempts(csv, repo, monkeyp
     assert nodes.resources._pipelines.pop(state.run_id, None) is not None
     state = run_to_completion(state, repo=repo, llm=client)
     assert state.status == "finalized", state.error
-    assert len(executed) == measured_before_crash  # no candidate was trained again
+    assert len(set(executed)) == len(executed)  # no candidate was trained again after the restart
     assert state.holdout_evaluations == 1

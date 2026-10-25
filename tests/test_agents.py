@@ -1,6 +1,5 @@
 import pytest
 
-from neuralpilot.agents.decision_agent import decide
 from neuralpilot.agents.planning_agent import generate_plan
 from neuralpilot.agents.reflection_agent import reflect
 from neuralpilot.agents.requirement_agent import (
@@ -12,7 +11,6 @@ from neuralpilot.meta_features import extract_meta_features
 from neuralpilot.schemas import (
     BlockDiagnostics,
     ConstraintWeights,
-    DecisionOutput,
     PlanSpec,
     PreprocessingStep,
     ReflectionOutput,
@@ -34,14 +32,6 @@ class FakeClient:
     def complete_json(self, system_prompt, user_prompt, schema, *, max_retries=2):
         self.calls.append((system_prompt, user_prompt, schema))
         return self.response
-
-
-class ExplodingClient:
-    """LLMClient stub that fails the test if it's ever called — used to
-    assert deterministic guardrails short-circuit before any LLM call."""
-
-    def complete_json(self, *args, **kwargs):
-        raise AssertionError("LLM should not have been called — guardrail should have short-circuited")
 
 
 def _df():
@@ -163,39 +153,3 @@ def test_reflect_returns_weakest_block():
     )
     result = reflect(report, client=client)
     assert result.weakest_block == "model_family"
-
-
-# --- Decision Agent ---
-
-
-def test_decide_forces_stop_at_max_iterations_without_calling_llm():
-    result = decide(
-        composite_score=0.5, score_history=[0.5], weakest_block="model_family",
-        weakest_block_history=["model_family"], iteration_count=5, max_iterations=5,
-        client=ExplodingClient(),
-    )
-    assert result.decision == "stop"
-    assert result.forced
-
-
-def test_decide_forces_stop_on_plateau_without_calling_llm():
-    result = decide(
-        composite_score=0.510, score_history=[0.40, 0.50, 0.505, 0.510], weakest_block="model_family",
-        weakest_block_history=["model_family"], iteration_count=3, max_iterations=10,
-        client=ExplodingClient(),
-    )
-    assert result.decision == "stop"
-    assert result.forced
-
-
-def test_decide_calls_llm_when_no_guardrail_fires():
-    response = DecisionOutput(decision="refine", rationale="close but not there")
-    client = FakeClient(response)
-    result = decide(
-        composite_score=0.6, score_history=[0.3, 0.6], weakest_block="hyperparameters",
-        weakest_block_history=["hyperparameters"], iteration_count=1, max_iterations=5,
-        client=client,
-    )
-    assert result.decision == "refine"
-    assert not result.forced
-    assert len(client.calls) == 1

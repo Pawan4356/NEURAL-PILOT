@@ -17,6 +17,7 @@ from typing import Callable
 import numpy as np
 import optuna
 import pandas as pd
+from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
 from sklearn.base import clone
 from sklearn.metrics import get_scorer
 from sklearn.pipeline import Pipeline
@@ -37,48 +38,73 @@ class HPOResult:
     duration_seconds: float = 0.0
 
 
-def search_space(model_family: str, trial: optuna.Trial, problem_type: ProblemType) -> dict:
-    """Search spaces keyed by *resolved* model_family registry name."""
+def search_space(model_family: str, problem_type: ProblemType) -> dict[str, BaseDistribution]:
+    """Search spaces keyed by *resolved* model_family registry name.
+
+    Declared as distributions, so a warm-start value can be checked against
+    the same bounds the trials sample from (Phase 7)."""
     if model_family == "LinearModel":
         if problem_type == "classification":
-            return {"C": trial.suggest_float("C", 0.01, 10.0, log=True)}
-        return {"alpha": trial.suggest_float("alpha", 0.01, 10.0, log=True)}
+            return {"C": FloatDistribution(0.01, 10.0, log=True)}
+        return {"alpha": FloatDistribution(0.01, 10.0, log=True)}
     if model_family == "DecisionTree":
-        return {"max_depth": trial.suggest_int("max_depth", 2, 20)}
+        return {"max_depth": IntDistribution(2, 20)}
     if model_family == "RandomForest":
-        return {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 300),
-            "max_depth": trial.suggest_int("max_depth", 2, 20),
-        }
+        return {"n_estimators": IntDistribution(50, 300), "max_depth": IntDistribution(2, 20)}
     if model_family == "GradientBoosting":
-        return {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 200),
-            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-        }
+        return {"n_estimators": IntDistribution(50, 200), "learning_rate": FloatDistribution(0.01, 0.3, log=True)}
     if model_family == "ExtraTrees":
-        return {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 300),
-            "max_depth": trial.suggest_int("max_depth", 2, 20),
-        }
+        return {"n_estimators": IntDistribution(50, 300), "max_depth": IntDistribution(2, 20)}
     if model_family == "HistGradientBoosting":
         return {
-            "max_iter": trial.suggest_int("max_iter", 50, 300),
-            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-            "max_leaf_nodes": trial.suggest_int("max_leaf_nodes", 8, 64),
+            "max_iter": IntDistribution(50, 300),
+            "learning_rate": FloatDistribution(0.01, 0.3, log=True),
+            "max_leaf_nodes": IntDistribution(8, 64),
         }
     if model_family == "XGBoost":
         return {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 300),
-            "max_depth": trial.suggest_int("max_depth", 2, 10),
-            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "n_estimators": IntDistribution(50, 300),
+            "max_depth": IntDistribution(2, 10),
+            "learning_rate": FloatDistribution(0.01, 0.3, log=True),
         }
     if model_family == "CatBoost":
         return {
-            "iterations": trial.suggest_int("iterations", 50, 200),
-            "depth": trial.suggest_int("depth", 3, 8),
-            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "iterations": IntDistribution(50, 200),
+            "depth": IntDistribution(3, 8),
+            "learning_rate": FloatDistribution(0.01, 0.3, log=True),
         }
     return {}
+
+
+def suggest_params(trial: optuna.Trial, space: dict[str, BaseDistribution]) -> dict:
+    params: dict = {}
+    for name, dist in space.items():
+        if isinstance(dist, IntDistribution):
+            params[name] = trial.suggest_int(name, dist.low, dist.high, log=dist.log)
+        else:
+            params[name] = trial.suggest_float(name, dist.low, dist.high, log=dist.log)
+    return params
+
+
+def within_space(space: dict[str, BaseDistribution], params: dict) -> dict:
+    """The part of `params` that the current space can express: names that are
+    still tunable, with values inside their bounds (and integral for integer
+    parameters). Anything else is dropped rather than clipped, because clipping
+    would silently test a configuration that was never recorded."""
+    kept: dict = {}
+    for name, value in params.items():
+        dist = space.get(name)
+        if dist is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if not dist.low <= value <= dist.high:
+            continue
+        if isinstance(dist, IntDistribution):
+            if not float(value).is_integer():
+                continue
+            kept[name] = int(value)
+        else:
+            kept[name] = float(value)
+    return kept
 
 
 def tune(
@@ -97,6 +123,7 @@ def tune(
     seed: int,
     progress_callback: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
+    warm_start_params: dict | None = None,
 ) -> HPOResult:
     start = time.perf_counter()
     if sampler_name == "none" or n_trials <= 0:
@@ -104,9 +131,10 @@ def tune(
 
     scorer = get_scorer(scorer_name)
     folds = list(cv.split(X, y, groups))
+    space = search_space(model_family, problem_type)
 
     def objective(trial: optuna.Trial) -> float:
-        params = search_space(model_family, trial, problem_type)
+        params = suggest_params(trial, space)
         template = make_pipeline(params)
         scores: list[float] = []
         for step, (train_pos, valid_pos) in enumerate(folds):
@@ -127,6 +155,11 @@ def tune(
     )
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=1)
     study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
+    # A stored configuration is tried first, so the search starts from what
+    # worked before. It counts as one of the trials, not an extra one.
+    warm_start = within_space(space, warm_start_params or {})
+    if warm_start:
+        study.enqueue_trial(warm_start)
 
     def on_trial_end(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
         if progress_callback:

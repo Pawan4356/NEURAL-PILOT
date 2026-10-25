@@ -1,7 +1,7 @@
 """Phase 4: candidate generation (Deliverable 8.3)."""
 
 from neuralpilot import config
-from neuralpilot.candidates import build_candidates
+from neuralpilot.candidates import WarmStart, build_candidates
 from neuralpilot.engine import plan_signature
 from neuralpilot.plan_resolution import PlanProfile, resolve
 from neuralpilot.schemas import PlanSpec, PreprocessingStep, TuningStrategy
@@ -80,7 +80,7 @@ def test_glass_box_requirement_keeps_black_box_families_out_of_the_candidates():
 def test_a_similar_past_plan_is_evaluated_as_a_warm_start_only():
     # XGBoost is not proposed by any other rule, so the warm start is the one that adds it.
     memory_plan = _plan("XGBoost")
-    candidates, _ = _build(_plan("LinearModel"), _profile(), memory_plans=[memory_plan], max_candidates=5)
+    candidates, _ = _build(_plan("LinearModel"), _profile(), memory_plans=[WarmStart(memory_plan)], max_candidates=5)
     memory = [c for c in candidates if c.source == "memory"]
     assert memory and memory[0].plan.model_family == "XGBoost"
     assert memory[0].plan.rationale == "warm start from a similar past experiment"
@@ -90,6 +90,26 @@ def test_substitutions_made_for_challengers_are_reported():
     planner = resolve(_plan("LinearModel"), _profile()).plan
     memory_plan = _plan("MysteryNet")
     _, substitutions = build_candidates(
-        planner, _profile(), iteration=1, tried=set(), memory_plans=[memory_plan], max_candidates=5
+        planner, _profile(), iteration=1, tried=set(), memory_plans=[WarmStart(memory_plan)], max_candidates=5
     )
     assert any(s.requested == "MysteryNet" and s.source == "memory" for s in substitutions)
+
+
+def test_stored_hyperparameters_travel_with_a_warm_start_of_the_same_family():
+    stored = {"n_estimators": 120, "max_depth": 4}
+    candidates, _ = _build(
+        _plan("LinearModel"), _profile(), memory_plans=[WarmStart(_plan("GradientBoosting"), stored)], max_candidates=5
+    )
+    memory = next(c for c in candidates if c.source == "memory")
+    assert memory.warm_start_params == stored
+
+
+def test_stored_hyperparameters_are_dropped_when_resolution_changes_the_family():
+    # MysteryNet is substituted, so the params of the original family must not follow it.
+    candidates, _ = _build(
+        _plan("LinearModel"),
+        _profile(),
+        memory_plans=[WarmStart(_plan("MysteryNet"), {"max_depth": 3})],
+        max_candidates=5,
+    )
+    assert all(not c.warm_start_params for c in candidates)

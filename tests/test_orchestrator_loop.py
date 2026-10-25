@@ -143,16 +143,12 @@ def test_holdout_is_scored_exactly_once(tmp_path, repo, monkeypatch):
             RequirementSpec: [_requirement()],
             PlanSpec: [_plan("LinearModel"), _plan("DecisionTree"), _plan("RandomForest")],
             ReflectionOutput: _reflections(),
-            DecisionOutput: [
-                DecisionOutput(decision="replan", rationale="r"),
-                DecisionOutput(decision="replan", rationale="r"),
-                DecisionOutput(decision="accept", rationale="a"),
-            ],
         }
     )
     state = _run(tmp_path, repo, client)
     assert state.status == "finalized", state.error
-    assert len(state.iteration_logs) == 3
+    # Iteration 1 cannot accept (Phase 9); iteration 2 accepts on the rules.
+    assert [log.decision for log in state.iteration_logs] == ["replan", "accept"]
     assert len(calls) == 1 and state.holdout_evaluations == 1
     assert state.final_report["holdout_metrics"] == state.final_metrics
     assert set(state.final_report["cv_metrics"]) >= {"f1_weighted", "accuracy"}
@@ -232,14 +228,15 @@ def test_finalized_run_persists_decision_trace_and_versions(tmp_path, repo):
             RequirementSpec: [_requirement()],
             PlanSpec: [_plan("LinearModel")],
             ReflectionOutput: _reflections(),
-            DecisionOutput: [DecisionOutput(decision="accept", rationale="good enough")],
         }
     )
     state = _run(tmp_path, repo, client)
     record = repo.get_run(state.run_id)
     assert record.status == "finalized"
-    assert record.iteration_logs[0]["decision_rationale"] == "good enough"
-    assert record.iteration_logs[0]["decision_forced"] is False
+    assert record.iteration_logs[0]["decision"] == "replan"
+    last = record.iteration_logs[-1]
+    assert last["decision"] == "accept" and last["decision_forced"] is False
+    assert last["decision_rationale"].startswith("The best attempt meets the hard constraints")
     assert record.model_path == state.model_path
     assert record.final_metrics["holdout"] == state.final_metrics
     assert record.code_version

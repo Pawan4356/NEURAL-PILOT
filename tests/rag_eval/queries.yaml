@@ -1,0 +1,77 @@
+# Labelled retrieval queries for the documentation index (Deliverable 7.6).
+# Each query lists the official page(s) that answer it. The labels were written
+# from what each page covers, before any retrieval was run, so they are not
+# tuned to the index. Evaluate with: python -m neuralpilot.knowledge.evaluate
+queries:
+  - query: how does OneHotEncoder handle categories that were not seen during fit
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: drop the first category in one-hot encoding to avoid collinearity
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: ordinal encoding of categorical features into integers
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: target encoding of a high cardinality categorical feature with cross fitting
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing_targets.html]
+  - query: why target encoding can leak the target into training
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing_targets.html]
+  - query: standardize features to zero mean and unit variance
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: robust scaling with median and interquartile range for outliers
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: scale features to a fixed minimum and maximum range
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: generate polynomial features and interaction terms
+    expected_urls: [https://scikit-learn.org/stable/modules/preprocessing.html]
+  - query: impute missing values with the mean or the median of each column
+    expected_urls: [https://scikit-learn.org/stable/modules/impute.html]
+  - query: iterative imputer and k nearest neighbours imputation
+    expected_urls: [https://scikit-learn.org/stable/modules/impute.html]
+  - query: regularization strength C of logistic regression
+    expected_urls: [https://scikit-learn.org/stable/modules/linear_model.html]
+  - query: ridge regression alpha parameter shrinks coefficients
+    expected_urls: [https://scikit-learn.org/stable/modules/linear_model.html]
+  - query: maximum depth of a decision tree to control overfitting
+    expected_urls: [https://scikit-learn.org/stable/modules/tree.html]
+  - query: how a decision tree chooses a split using Gini impurity
+    expected_urls: [https://scikit-learn.org/stable/modules/tree.html]
+  - query: random forest bagging with a number of trees
+    expected_urls: [https://scikit-learn.org/stable/modules/ensemble.html]
+  - query: extra trees use random split thresholds
+    expected_urls: [https://scikit-learn.org/stable/modules/ensemble.html]
+  - query: histogram based gradient boosting with native support for missing values
+    expected_urls: [https://scikit-learn.org/stable/modules/ensemble.html]
+  - query: gradient boosting trade-off between learning rate and number of estimators
+    expected_urls: [https://scikit-learn.org/stable/modules/ensemble.html]
+  - query: early stopping of gradient boosting using a validation fraction
+    expected_urls: [https://scikit-learn.org/stable/modules/ensemble.html]
+  - query: stratified k-fold cross-validation for classification
+    expected_urls: [https://scikit-learn.org/stable/modules/cross_validation.html]
+  - query: time series split cross-validation without shuffling
+    expected_urls: [https://scikit-learn.org/stable/modules/cross_validation.html]
+  - query: scoring metrics for imbalanced classification such as balanced accuracy and f1
+    expected_urls: [https://scikit-learn.org/stable/modules/model_evaluation.html]
+  - query: area under the ROC curve as a score
+    expected_urls: [https://scikit-learn.org/stable/modules/model_evaluation.html]
+  - query: mean squared error and R2 score for regression models
+    expected_urls: [https://scikit-learn.org/stable/modules/model_evaluation.html]
+  - query: principal component analysis and explained variance for dimensionality reduction
+    expected_urls: [https://scikit-learn.org/stable/modules/decomposition.html]
+  - query: univariate feature selection with SelectKBest scores
+    expected_urls: [https://scikit-learn.org/stable/modules/feature_selection.html]
+  - query: recursive feature elimination removes the least important features
+    expected_urls: [https://scikit-learn.org/stable/modules/feature_selection.html]
+  - query: data leakage when preprocessing is fitted on the full dataset before splitting
+    expected_urls: [https://scikit-learn.org/stable/common_pitfalls.html]
+  - query: XGBoost max_depth and min_child_weight parameters
+    expected_urls: [https://xgboost.readthedocs.io/en/stable/parameter.html]
+  - query: XGBoost subsample and colsample_bytree for regularization
+    expected_urls: [https://xgboost.readthedocs.io/en/stable/parameter.html]
+  - query: CatBoost one-hot encoding of categorical features with max size
+    expected_urls: [https://catboost.ai/docs/en/concepts/parameter-tuning]
+  - query: CatBoost depth and l2 leaf regularization tuning
+    expected_urls: [https://catboost.ai/docs/en/concepts/parameter-tuning]
+  - query: Optuna TPE sampler proposes promising hyperparameters
+    expected_urls: [https://optuna.readthedocs.io/en/stable/reference/samplers/index.html]
+  - query: random sampler as a baseline for hyperparameter search in Optuna
+    expected_urls: [https://optuna.readthedocs.io/en/stable/reference/samplers/index.html]
+  - query: median pruner stops unpromising trials early
+    expected_urls: [https://optuna.readthedocs.io/en/stable/reference/pruners.html]

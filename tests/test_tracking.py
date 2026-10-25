@@ -113,7 +113,7 @@ def test_one_parent_and_one_child_per_candidate(csv, repo, mlflow_store):
     children = mlflow_store.search_runs(
         [experiment_id], filter_string=f"tags.`mlflow.parentRunId` = '{parent_id}'"
     )
-    ok_candidates = [c for c in state.iteration_logs[0].candidates if c["status"] == "ok"]
+    ok_candidates = [c for log in state.iteration_logs for c in log.candidates if c["status"] == "ok"]
     assert len(children) == len(ok_candidates) >= 2
     for child in children:
         assert child.info.status == "FINISHED"
