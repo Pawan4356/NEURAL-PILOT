@@ -13,22 +13,28 @@ import threading
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
+from ..accounts import AccountStore, OwnedRun, User
 from ..agents.requirement_agent import InvalidClarification
 from ..engine import DatasetLoadError
 from ..orchestrator import RunState, apply_clarification, create_run, run_to_completion
+from . import history
+from .auth import current_user, get_accounts, router as auth_router
 
 app = FastAPI(title="Neural Pilot")
+app.include_router(auth_router)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _LOGO_PATH = Path(__file__).resolve().parents[3] / "media" / "Logo.svg"
 _FAVICON_PATH = Path(__file__).resolve().parents[3] / "media" / "favicon.svg"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
+# Active runs only. A finished run is evicted here (its DataFrame is large) and
+# served from the experiment store from then on.
 RUNS: dict[str, RunState] = {}
 _RUNS_LOCK = threading.Lock()
 
@@ -37,7 +43,24 @@ def _run_in_background(run_id: str) -> None:
     state = RUNS[run_id]
     run_to_completion(state)
     with _RUNS_LOCK:
-        RUNS[run_id] = state
+        if state.status in history.FINISHED_STATUSES:
+            RUNS.pop(run_id, None)
+        else:
+            RUNS[run_id] = state  # paused for clarification: keep it so the answer can resume it
+
+
+def _live_state(run_id: str) -> RunState | None:
+    with _RUNS_LOCK:
+        return RUNS.get(run_id)
+
+
+def _owned_run(run_id: str, user: User, accounts: AccountStore) -> OwnedRun:
+    """The run, if this user owns it. Other users' runs get the same 404 as
+    unknown ones, so the API does not reveal which run IDs exist."""
+    owned = accounts.owned_run(run_id, user.id)
+    if owned is None:
+        raise HTTPException(404, "Run not found.")
+    return owned
 
 
 def _serialize(state: RunState) -> dict:
@@ -115,8 +138,26 @@ def favicon() -> Response:
     return Response(_FAVICON_PATH.read_text(), media_type="image/svg+xml")
 
 
+@app.get("/api/runs")
+def list_runs(user: User = Depends(current_user), accounts: AccountStore = Depends(get_accounts)) -> JSONResponse:
+    """This user's runs, newest first. Only their own runs are ever listed."""
+    rows = []
+    with history.experiment_store() as repo:
+        for owned in accounts.runs_for_user(user.id):
+            state = _live_state(owned.run_id)
+            live_status = state.status if state else None
+            record = repo.get_run(owned.run_id) if live_status is None else None
+            rows.append(history.summarize(owned, live_status, record))
+    return JSONResponse(rows)
+
+
 @app.post("/api/runs")
-async def create_run_endpoint(file: UploadFile, goal: str = Form(...)) -> JSONResponse:
+async def create_run_endpoint(
+    file: UploadFile,
+    goal: str = Form(...),
+    user: User = Depends(current_user),
+    accounts: AccountStore = Depends(get_accounts),
+) -> JSONResponse:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Please upload a .csv file.")
     if not goal.strip():
@@ -132,6 +173,9 @@ async def create_run_endpoint(file: UploadFile, goal: str = Form(...)) -> JSONRe
         dataset_path.unlink(missing_ok=True)
         raise HTTPException(400, f"Could not read dataset: {exc}") from exc
 
+    # Ownership is recorded before the run starts, so a run interrupted by a restart
+    # still shows up in its owner's list.
+    accounts.record_run(state.run_id, user.id, file.filename, goal)
     with _RUNS_LOCK:
         RUNS[state.run_id] = state
 
@@ -142,16 +186,29 @@ async def create_run_endpoint(file: UploadFile, goal: str = Form(...)) -> JSONRe
 
 
 @app.get("/api/runs/{run_id}")
-def get_run(run_id: str) -> JSONResponse:
-    state = RUNS.get(run_id)
-    if state is None:
-        raise HTTPException(404, "Run not found.")
-    return JSONResponse(_serialize(state))
+def get_run(
+    run_id: str, user: User = Depends(current_user), accounts: AccountStore = Depends(get_accounts)
+) -> JSONResponse:
+    owned = _owned_run(run_id, user, accounts)
+    state = _live_state(run_id)
+    if state is not None:
+        return JSONResponse(_serialize(state))
+    with history.experiment_store() as repo:
+        record = repo.get_run(run_id)
+    if record is None:
+        return JSONResponse(history.interrupted_view(owned))
+    return JSONResponse(history.serialize_record(record))
 
 
 @app.post("/api/runs/{run_id}/clarify")
-def clarify_run(run_id: str, answer: str = Form(...)) -> JSONResponse:
-    state = RUNS.get(run_id)
+def clarify_run(
+    run_id: str,
+    answer: str = Form(...),
+    user: User = Depends(current_user),
+    accounts: AccountStore = Depends(get_accounts),
+) -> JSONResponse:
+    _owned_run(run_id, user, accounts)
+    state = _live_state(run_id)
     if state is None:
         raise HTTPException(404, "Run not found.")
     if state.status != "awaiting_clarification":
@@ -169,9 +226,12 @@ def clarify_run(run_id: str, answer: str = Form(...)) -> JSONResponse:
 
 
 @app.post("/api/runs/{run_id}/cancel")
-def cancel_run(run_id: str) -> JSONResponse:
+def cancel_run(
+    run_id: str, user: User = Depends(current_user), accounts: AccountStore = Depends(get_accounts)
+) -> JSONResponse:
     """Stop after the current trial; the best attempt so far is still saved."""
-    state = RUNS.get(run_id)
+    _owned_run(run_id, user, accounts)
+    state = _live_state(run_id)
     if state is None:
         raise HTTPException(404, "Run not found.")
     if state.status != "running":
@@ -181,8 +241,17 @@ def cancel_run(run_id: str) -> JSONResponse:
 
 
 @app.get("/api/runs/{run_id}/model")
-def download_model(run_id: str) -> FileResponse:
-    state = RUNS.get(run_id)
-    if state is None or not state.model_path:
+def download_model(
+    run_id: str, user: User = Depends(current_user), accounts: AccountStore = Depends(get_accounts)
+) -> FileResponse:
+    owned = _owned_run(run_id, user, accounts)
+    state = _live_state(run_id)
+    if state is not None:
+        model_path, dataset_name = state.model_path, state.dataset_name
+    else:
+        with history.experiment_store() as repo:
+            record = repo.get_run(run_id)
+        model_path, dataset_name = (record.model_path, record.dataset_name) if record else (None, owned.dataset_name)
+    if not model_path or not Path(model_path).exists():
         raise HTTPException(404, "Model not available.")
-    return FileResponse(state.model_path, filename=f"{state.dataset_name}_model.joblib")
+    return FileResponse(model_path, filename=f"{dataset_name}_model.joblib")

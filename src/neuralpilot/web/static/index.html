@@ -15,15 +15,39 @@
         <div class="crumb" id="crumb">/ <b>new run</b></div>
       </div>
       <div class="top-actions">
-        <div class="env" id="env-line">llm <b id="env-model">…</b> · max_iterations <b id="max-iterations">5</b></div>
-        <div class="theme-toggle">
-          <button id="btn-dark" class="active" type="button">◐ Dark</button>
-          <button id="btn-light" type="button">☀ Light</button>
+        <div class="session hidden" id="session-box">
+          <span class="session-email" id="session-email"></span>
+          <button class="btn ghost" id="logout-btn" type="button">Log out</button>
         </div>
+        <div class="env" id="env-line">llm <b id="env-model">…</b> · max_iterations <b id="max-iterations">5</b></div>
+        <button id="btn-theme" class="theme-btn" type="button" aria-label="Switch to light theme" title="Switch theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
       </div>
     </header>
 
-    <section class="page visible" id="page-new">
+    <section class="page visible" id="page-auth">
+      <h1>Sign in to Neural Pilot</h1>
+      <p class="sub">Sign in to start a run or reopen your previous ones. Each account sees only its own runs.</p>
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title" id="auth-title">Log in</div>
+        </div>
+        <label for="auth-email">Email</label>
+        <input id="auth-email" type="email" autocomplete="email">
+        <label for="auth-password">Password</label>
+        <input id="auth-password" type="password" autocomplete="current-password">
+        <div class="hint" id="auth-hint">At least 8 characters.</div>
+        <button class="btn" id="auth-btn" type="button">Log in →</button>
+        <div id="auth-error" class="error-box hidden"></div>
+        <div class="auth-switch">
+          <button class="btn ghost" id="auth-toggle" type="button">No account? Sign up</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-new">
       <h1>Point it at a CSV. Tell it what to predict.</h1>
       <p class="sub">Four agents plan and refine the pipeline; deterministic code trains, evaluates, and stores the result. Every fallback and decision gets logged as it happens.</p>
       <div class="panel">
@@ -41,6 +65,14 @@
         <div class="env-row" id="env-row"></div>
         <button class="btn" id="start-btn" type="button">Start run →</button>
         <div id="new-error" class="error-box hidden"></div>
+      </div>
+      <div class="panel" id="runs-panel">
+        <div class="panel-head">
+          <div class="panel-title">Your previous runs</div>
+        </div>
+        <div class="run-list" id="runs-list"></div>
+        <div class="hint hidden" id="runs-empty">No runs yet. Your finished and in-progress runs will appear here.</div>
+        <div id="runs-error" class="error-box hidden"></div>
       </div>
     </section>
 

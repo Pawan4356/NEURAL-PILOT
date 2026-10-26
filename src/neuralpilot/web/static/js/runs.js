@@ -1,5 +1,6 @@
 import { createRun, getRun, submitClarification } from './api.js';
 import { $, hide, show } from './dom.js';
+import { refreshRuns } from './history.js';
 import { renderRun } from './renderers.js';
 import { resetRunState, state, stopPolling } from './state.js';
 
@@ -23,7 +24,7 @@ async function fetchStatus() {
   try {
     const data = await getRun(state.currentRunId);
     renderRun(data);
-    if (['finalized', 'failed', 'awaiting_clarification'].includes(data.status)) {
+    if (['finalized', 'failed', 'interrupted', 'awaiting_clarification'].includes(data.status)) {
       stopPolling();
     }
   } catch (error) {
@@ -80,6 +81,15 @@ async function clarifyRun() {
   startPolling();
 }
 
+// Opens a run from the "your previous runs" list. Finished runs load once and
+// stop polling; a run still in progress keeps updating.
+export function openRun(run) {
+  resetRunState();
+  state.currentRunId = run.run_id;
+  showRunPage(run.run_id, run.goal);
+  startPolling();
+}
+
 function returnToNewRun() {
   stopPolling();
   resetRunState();
@@ -95,6 +105,7 @@ function returnToNewRun() {
   $('page-run').classList.remove('visible');
   $('page-new').classList.add('visible');
   $('crumb').innerHTML = '/ <b>new run</b>';
+  refreshRuns();
 }
 
 export function initRuns() {

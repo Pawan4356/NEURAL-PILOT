@@ -47,8 +47,35 @@
 | 9 — Reflection v2 + deterministic routing | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
 | 10 — External research | ⏸ Held by the owner (not started) | |
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
+| 12 — User accounts + persistent run history (design change, not in the original plan) | ✅ Done (uncommitted, branch `lang`) | 2026-10-26 |
 
-**Next up:** Phase 11 (final report, UI, E2E acceptance). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+**Next up:** Phase 11 (final report, UI, E2E acceptance). Phase 12 (accounts and run history) is done; its open item is that guidance sends other users' dataset file names to the planner (see Phase 12). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+
+### Phase 12 — User accounts and persistent run history — done (2026-10-26)
+
+**What it does.** Users sign up with email and password and log in. Each user sees, and can reopen, only their own runs (list, report, iteration history, model download). Finished runs are read from the experiment store, so they survive a server restart. Guidance (the experiment store that the planner retrieves from) still draws on every user's finished runs, as before. The documentation RAG index (Chroma) is unchanged.
+
+**Test status:** 327 tests pass (full suite). New: `tests/test_accounts.py` (password hashing, sign-up validation, login, sessions, run ownership), and `tests/test_web.py` gained auth, cross-user isolation, restored-run, interrupted-run and eviction tests. `ruff check --select F,E9` is clean on the touched Python files. `node --check` (ES module mode) passes for every JS file. The browser UI was not exercised in a browser.
+
+**Where the code lives**
+- `accounts/` — `store.py` (`AccountStore`: users, sessions, `run_owners`; each call opens its own SQLite connection, so it is safe across threads), `passwords.py` (stdlib scrypt; the cost parameters are stored with each hash).
+- `web/auth.py` — `/api/auth/{signup,login,logout,me}` and the `current_user` dependency. Session token in an HTTP-only cookie; only its SHA-256 hash is stored.
+- `web/history.py` — rebuilds a finished run's view from the experiment store; builds list rows and the "interrupted" view.
+- `web/app.py` — every `/api/runs*` route requires login and checks ownership. `RUNS` now holds only active runs; `_run_in_background` evicts a run once it finalizes or fails.
+- Frontend: `js/auth.js` (sign-in page, session check, log out), `js/history.js` ("your previous runs" list), `js/runs.js` (`openRun`), `js/api.js` (auth and list calls; a 401 announces the signed-out state).
+- `config.py` — `ACCOUNTS_DB_PATH` (`runs/accounts.sqlite3`), `SESSION_TTL_S` (7 days), `SESSION_COOKIE_SECURE` (env `NEURALPILOT_COOKIE_SECURE=1` for HTTPS).
+- `tests/conftest.py` — redirects `DB_PATH` and `ACCOUNTS_DB_PATH` to the per-test directory, so no test writes to `runs/`.
+
+**Deviations from the plan (deliberate)**
+- **Ownership is a separate `run_owners` table in `accounts.sqlite3`, not a `user_id` column on `runs`.** A run is owned from the moment it is created, but its experiment row is only written when it finishes. A separate table records the owner at creation, so a run lost in a restart still appears in its owner's list. It also keeps the guidance store and the graph unchanged.
+- **In-flight state is not persisted.** Only finished runs are stored. A run that was active when the server restarted is listed as `interrupted`, with the message that its results were not saved. Resuming runs across restarts is out of scope.
+- **Restored runs have no activity feed.** The live activity log is not stored, so reopening a finished run shows the report and iteration history only.
+- **Sign-up is open** (no invite, no email verification, no password reset, no rate limiting). These were the decisions taken in the plan.
+
+**Known limitations / open items**
+- **Cross-user leakage through guidance.** `agents/planning_agent.py` puts each retrieved past run's `dataset_name` (the uploaded file name) into the planner prompt. Once guidance draws on other users' runs, one user's file name can reach the LLM during another user's run. Decide whether to strip file names from guidance (the planner needs the dataset's shape, not its name) before relying on this for multiple real users.
+- Session cookies are not marked `Secure` by default, so they work over plain HTTP on localhost. Set `NEURALPILOT_COOKIE_SECURE=1` when served over HTTPS.
+- The uploaded dataset files in `data/` are never deleted, and the model downloads are not versioned per user. Both are unchanged from before.
 
 ### Phase 7 + 8 + 9 — done (2026-10-25)
 
