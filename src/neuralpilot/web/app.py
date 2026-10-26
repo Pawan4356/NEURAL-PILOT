@@ -42,6 +42,9 @@ _RUNS_LOCK = threading.Lock()
 def _run_in_background(run_id: str) -> None:
     state = RUNS[run_id]
     run_to_completion(state)
+    if state.status in history.FINISHED_STATUSES:
+        with history.experiment_store() as repo:
+            repo.save_activity(run_id, state.activity_log)
     with _RUNS_LOCK:
         if state.status in history.FINISHED_STATUSES:
             RUNS.pop(run_id, None)

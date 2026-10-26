@@ -48,8 +48,28 @@
 | 10 — External research | ⏸ Held by the owner (not started) | |
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
 | 12 — User accounts + persistent run history (design change, not in the original plan) | ✅ Done (uncommitted, branch `lang`) | 2026-10-26 |
+| 13 — Web UI redesign to the reference (`NeuralPilot-Reference-UI.html`) | ✅ Done (uncommitted, branch `main`) | 2026-10-26 |
 
 **Next up:** Phase 11 (final report, UI, E2E acceptance). Phase 12 (accounts and run history) is done; its open item is that guidance sends other users' dataset file names to the planner (see Phase 12). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+
+### Phase 13 — Web UI redesign to the reference — done (2026-10-26)
+
+**What changed.** The console now follows `NeuralPilot-Reference-UI.html`: a left rail with the user's runs and account footer, a split sign-in page with the "how a run works" panel, a new-run card (drop zone, column preview, goal chips, run settings from the server), a run page with an agent timeline and score chart, and a report page with a score hero and tabs (iterations, top features, data and plan, notes). The reference's simulated data is replaced by the real API. The reference-only screen switcher is left out. Password hint sits on the Password label line, right-aligned.
+
+**Verification.** Full suite passes (328 tests). Driven in headless Chrome against the real server with a scripted LLM: sign-up, upload, clarification, run to finish, View report, JSON dialog, tabs, reopen from the rail, light theme and a 390px phone layout (no horizontal scroll). Screenshots were checked by eye.
+
+**Bugs found and fixed on the way**
+- **Polling stopped mid-run after a clarification answer.** The streamed graph values still carried the old `awaiting_clarification` status while the resumed graph started, and `_project` copied it. The page read "awaiting", stopped polling, and never showed the run finishing. Fix: a paused run is "awaiting" only from the graph's interrupt (`_sync_pause`), never from a streamed value. Regression test in `tests/test_orchestrator.py`.
+- **Reopening a run from the rail used a stale list status.** The screen is now chosen from the fetched run, not the cached row.
+- **Time budget never shown** in the progress panel. Now filled from the server settings.
+
+**Other changes**
+- `runs.activity_log_json` (migration 4) stores the activity log when a run finishes, so reopened runs keep their timeline. See Phase 12.
+- Old `styles`/`app.js` code paths replaced: `shell.js` (screens and rail), `format.js`, `chart.js` (score chart), `report.js` (split out of `renderers.js`).
+
+**Known limitations**
+- The reference has a simulated clock and progress bar. The real run has no start time in the API, so the progress panel shows the time budget but not elapsed time.
+- Browser checks were done in headless Chrome only; Firefox and Safari were not tried.
 
 ### Phase 12 — User accounts and persistent run history — done (2026-10-26)
 
@@ -69,7 +89,7 @@
 **Deviations from the plan (deliberate)**
 - **Ownership is a separate `run_owners` table in `accounts.sqlite3`, not a `user_id` column on `runs`.** A run is owned from the moment it is created, but its experiment row is only written when it finishes. A separate table records the owner at creation, so a run lost in a restart still appears in its owner's list. It also keeps the guidance store and the graph unchanged.
 - **In-flight state is not persisted.** Only finished runs are stored. A run that was active when the server restarted is listed as `interrupted`, with the message that its results were not saved. Resuming runs across restarts is out of scope.
-- **Restored runs have no activity feed.** The live activity log is not stored, so reopening a finished run shows the report and iteration history only.
+- **Activity log is stored once a run finishes.** The web layer saves the live activity log to the new `runs.activity_log_json` column (migration 4) when the run reaches a terminal state, so a reopened run shows its timeline. Runs that finished before this migration have no timeline.
 - **Sign-up is open** (no invite, no email verification, no password reset, no rate limiting). These were the decisions taken in the plan.
 
 **Known limitations / open items**

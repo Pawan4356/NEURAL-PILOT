@@ -131,12 +131,15 @@ def test_finished_run_is_served_from_the_experiment_store(client, tmp_path):
     )
     repo = ExperimentRepository(db_path=config.DB_PATH)
     repo.save_run(record)
+    activity = [{"time": "12:00:00", "tag": "plan", "message": "Planned a linear model."}]
+    repo.save_activity("done1", activity)
     repo.close()
     _own("done1")
 
     body = client.get("/api/runs/done1").json()
     assert body["status"] == "finalized"
     assert body["final_report"] == {"target_column": "y", "feasible": True}
+    assert body["activity_log"] == activity
     assert client.get("/api/runs").json()[0]["status"] == "finalized"
 
 

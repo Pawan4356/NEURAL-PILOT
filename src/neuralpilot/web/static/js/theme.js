@@ -1,18 +1,22 @@
-import { $ } from './dom.js';
-
 const STORAGE_KEY = 'neuralpilot-theme';
 const REVEAL_MS = 550;
 
+function iconFor(mode) {
+  // The button shows the mode it switches *to*.
+  return mode === 'dark' ? 'i-sun' : 'i-moon';
+}
+
 function applyTheme(mode) {
   document.documentElement.dataset.theme = mode;
-  const button = $('btn-theme');
   const next = mode === 'dark' ? 'light' : 'dark';
-  button.setAttribute('aria-label', `Switch to ${next} theme`);
-
-  const logo = document.querySelector('.brand img');
-  if (logo) {
+  document.querySelectorAll('.theme-btn').forEach((button) => {
+    button.innerHTML = `<svg class="i"><use href="#${iconFor(mode)}"/></svg>`;
+    button.setAttribute('aria-label', `Switch to ${next} theme`);
+  });
+  // The logo is recoloured by the server for each theme.
+  document.querySelectorAll('[data-logo]').forEach((logo) => {
     logo.src = `/logo.svg?theme=${mode}`;
-  }
+  });
 }
 
 function currentTheme() {
@@ -53,9 +57,11 @@ export function initTheme() {
   const savedTheme = localStorage.getItem(STORAGE_KEY);
   applyTheme(savedTheme === 'light' ? 'light' : 'dark');
 
-  $('btn-theme').onclick = (event) => {
-    const mode = currentTheme() === 'dark' ? 'light' : 'dark';
-    localStorage.setItem(STORAGE_KEY, mode);
-    revealFromButton(event, mode);
-  };
+  document.querySelectorAll('.theme-btn').forEach((button) => {
+    button.onclick = (event) => {
+      const mode = currentTheme() === 'dark' ? 'light' : 'dark';
+      localStorage.setItem(STORAGE_KEY, mode);
+      revealFromButton(event, mode);
+    };
+  });
 }

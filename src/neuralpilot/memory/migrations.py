@@ -80,6 +80,9 @@ MIGRATIONS: list[list[str]] = [
         )
         """,
     ],
+    [  # Web UI: the live activity log, so a finished run can be reopened with its timeline.
+        "ALTER TABLE runs ADD COLUMN activity_log_json TEXT NOT NULL DEFAULT '[]'",
+    ],
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 

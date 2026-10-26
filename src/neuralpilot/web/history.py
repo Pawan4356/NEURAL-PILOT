@@ -31,13 +31,13 @@ def experiment_store() -> Iterator[ExperimentRepository]:
 
 def serialize_record(record: ExperimentRecord) -> dict:
     """The same shape `web.app._serialize` returns for a live run, for a finished one.
-    Live-only fields (activity feed, current task) are empty: they were not kept."""
+    Only `current_task` is empty: it describes work in progress, which a finished run does not have."""
     return {
         "run_id": record.run_id,
         "dataset_name": record.dataset_name,
         "status": record.status,
         "current_task": "",
-        "activity_log": [],
+        "activity_log": record.activity_log,
         "clarification_question": None,
         "iteration": len(record.iteration_logs),
         "max_iterations": config.MAX_ITERATIONS,

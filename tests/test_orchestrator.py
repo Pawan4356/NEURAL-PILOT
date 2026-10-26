@@ -148,3 +148,35 @@ def test_clarification_pauses_then_resumes(tmp_path, repo, monkeypatch):
     assert state.status == "finalized"
     assert state.requirement.target_column == "y"
     assert any("confirmed by user" in a for a in state.final_report["assumptions"])
+
+
+def test_accepted_answer_keeps_running_until_the_resumed_graph_writes(tmp_path):
+    """Regression: the checkpoint still shows the question after an answer is accepted.
+    Copying its status made the page read "awaiting" and stop polling mid-run."""
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from neuralpilot import orchestrator
+
+    class PausedGraph:
+        def get_state(self, config):
+            return SimpleNamespace(
+                values={"status": "awaiting_clarification", "clarification_question": "Which column?"},
+                interrupts=[object()],
+                next=(),
+            )
+
+    state = orchestrator.RunState(
+        run_id="r1", dataset_path=tmp_path / "x.csv", dataset_name="x.csv", user_goal="g",
+        df=pd.DataFrame({"a": [1]}),
+    )
+    state.status = "running"  # what apply_clarification sets when the answer is accepted
+    state.pending_answer = "a"
+
+    should_run, resume = orchestrator._next_input(PausedGraph(), {}, state)
+
+    assert should_run is True
+    assert resume is not None
+    assert state.status == "running"
+    assert state.pending_answer is None

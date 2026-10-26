@@ -56,6 +56,7 @@ class ExperimentRecord:
     final_report: dict | None = None
     mlflow_run_id: str | None = None
     evidence_quality: str = EVIDENCE_OK
+    activity_log: list[dict] = field(default_factory=list)  # what the UI showed while the run ran
 
     @classmethod
     def new(cls, **kwargs) -> "ExperimentRecord":
@@ -88,6 +89,7 @@ class ExperimentRecord:
             final_report=json.loads(report) if report else None,
             mlflow_run_id=row["mlflow_run_id"],
             evidence_quality=row["evidence_quality"],
+            activity_log=json.loads(row["activity_log_json"]),
         )
 
 
@@ -167,6 +169,15 @@ class ExperimentRepository:
                 record.mlflow_run_id,
                 record.evidence_quality,
             ),
+        )
+        self._conn.commit()
+
+    def save_activity(self, run_id: str, activity_log: list[dict]) -> None:
+        """Store the UI activity log of a finished run. The graph does not produce this
+        log, so the web layer saves it once the run has reached a terminal state."""
+        self._conn.execute(
+            "UPDATE runs SET activity_log_json = ? WHERE run_id = ?",
+            (json.dumps(activity_log, default=str), run_id),
         )
         self._conn.commit()
 

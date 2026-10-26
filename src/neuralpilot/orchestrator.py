@@ -229,7 +229,12 @@ def _sync_pause(graph, graph_config: dict, state: RunState) -> None:
 
 def _project(values: dict, state: RunState) -> None:
     """Copy the UI-relevant parts of graph state onto the RunState."""
-    state.status = values.get("status", state.status)
+    # A paused run is "awaiting" because the graph has an interrupt (_sync_pause), not
+    # because of a streamed value: a resumed graph still streams the old checkpoint value
+    # before it moves on, and copying that made the page think the run was waiting again.
+    status = values.get("status", state.status)
+    if status != "awaiting_clarification":
+        state.status = status
     state.requirement = values.get("requirement") or state.requirement
     state.clarification_question = values.get("clarification_question")
     state.iteration = values.get("iteration", 0)

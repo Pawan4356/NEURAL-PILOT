@@ -1,69 +1,90 @@
 import { getSession, logIn, logOut, SIGNED_OUT_EVENT, signUp } from './api.js';
 import { $, hide, show } from './dom.js';
+import { showAuth, showApp } from './shell.js';
 import { stopPolling } from './state.js';
 
-// Shows the sign-in page until the server confirms a session, and hands control
-// to `onSignedIn` once it does. Visibility here is only UI: the server enforces access.
+const MIN_PASSWORD = 8;
 let mode = 'login';
 let onSignedIn = () => {};
 
 export function initAuth(handler) {
   onSignedIn = handler;
-  $('auth-btn').onclick = submitCredentials;
-  $('auth-toggle').onclick = () => setMode(mode === 'login' ? 'signup' : 'login');
-  $('auth-password').onkeydown = (event) => {
-    if (event.key === 'Enter') submitCredentials();
+  $('a-form').onsubmit = (event) => {
+    event.preventDefault();
+    submitCredentials();
   };
+  $('a-toggle').onclick = () => setMode(mode === 'login' ? 'signup' : 'login');
+  $('a-eye').onclick = togglePasswordVisibility;
   $('logout-btn').onclick = logOutAndReload;
   window.addEventListener(SIGNED_OUT_EVENT, showSignedOut);
 
   setMode('login');
   getSession()
-    .then((user) => showSignedIn(user.email))
+    .then((user) => enter(user.email))
     .catch(showSignedOut);
 }
 
 export function showSignedOut() {
   stopPolling();
-  hide('session-box');
-  $('page-new').classList.remove('visible');
-  $('page-run').classList.remove('visible');
-  $('page-auth').classList.add('visible');
+  showAuth();
 }
 
-function showSignedIn(email) {
-  $('session-email').textContent = email;
-  show('session-box');
-  $('page-auth').classList.remove('visible');
-  $('page-new').classList.add('visible');
+function enter(email) {
+  showApp(email);
   onSignedIn();
 }
 
 function setMode(next) {
   mode = next;
   const signingUp = mode === 'signup';
-  $('auth-title').textContent = signingUp ? 'Sign up' : 'Log in';
-  $('auth-btn').textContent = signingUp ? 'Create account →' : 'Log in →';
-  $('auth-toggle').textContent = signingUp ? 'Have an account? Log in' : 'No account? Sign up';
-  $('auth-password').setAttribute('autocomplete', signingUp ? 'new-password' : 'current-password');
-  $('auth-hint').classList.toggle('hidden', !signingUp);
-  hide('auth-error');
+  $('a-title').textContent = signingUp ? 'Create your account' : 'Sign in to Neural Pilot';
+  $('a-sub').textContent = signingUp
+    ? 'Runs are private to your account, so you can come back to them any time.'
+    : 'Start a run or reopen your previous ones. Each account sees only its own runs.';
+  $('a-btn').textContent = signingUp ? 'Create account' : 'Log in';
+  $('a-q').textContent = signingUp ? 'Already have an account?' : 'No account?';
+  $('a-toggle').textContent = signingUp ? 'Log in' : 'Sign up';
+  $('a-pw').setAttribute('autocomplete', signingUp ? 'new-password' : 'current-password');
+  $('a-hint').hidden = !signingUp;
+  hide('a-error');
+}
+
+function togglePasswordVisibility() {
+  const input = $('a-pw');
+  const reveal = input.type === 'password';
+  input.type = reveal ? 'text' : 'password';
+  $('a-eye').setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+}
+
+function checkForm(email, password) {
+  if (!/^\S+@\S+\.\S+$/.test(email)) return 'Enter a valid email address.';
+  if (mode === 'signup' && password.length < MIN_PASSWORD) {
+    return `Use a password with at least ${MIN_PASSWORD} characters.`;
+  }
+  return '';
 }
 
 async function submitCredentials() {
-  const email = $('auth-email').value.trim();
-  const password = $('auth-password').value;
-  hide('auth-error');
-  $('auth-btn').disabled = true;
+  const email = $('a-email').value.trim();
+  const password = $('a-pw').value;
+  const problem = checkForm(email, password);
+  if (problem) {
+    $('a-error-t').textContent = problem;
+    show('a-error');
+    return;
+  }
+
+  hide('a-error');
+  $('a-btn').disabled = true;
   try {
     const user = mode === 'signup' ? await signUp(email, password) : await logIn(email, password);
-    $('auth-password').value = '';
-    showSignedIn(user.email);
+    $('a-pw').value = '';
+    enter(user.email);
   } catch (error) {
-    $('auth-error').textContent = error.message;
-    show('auth-error');
+    $('a-error-t').textContent = error.message;
+    show('a-error');
   } finally {
-    $('auth-btn').disabled = false;
+    $('a-btn').disabled = false;
   }
 }
 
