@@ -49,8 +49,24 @@
 | 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
 | 12 — User accounts + persistent run history (design change, not in the original plan) | ✅ Done (uncommitted, branch `lang`) | 2026-10-26 |
 | 13 — Web UI redesign to the reference (`NeuralPilot-Reference-UI.html`) | ✅ Done (uncommitted, branch `main`) | 2026-10-26 |
+| 14 — Run controls (stop, retry), a readable activity feed, report as text (design change, not in the original plan) | ✅ Done (uncommitted, branch `main`) | 2026-10-26 |
 
 **Next up:** Phase 11 (final report, UI, E2E acceptance). Phase 12 (accounts and run history) is done; its open item is that guidance sends other users' dataset file names to the planner (see Phase 12). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+
+### Phase 14 — Run controls, a readable activity feed and the report as text — done (2026-10-26)
+
+**What changed.** Four things the console was missing while a run is live:
+
+- **Stop run.** A button in the run header posts to the `/api/runs/{id}/cancel` endpoint that Phase 1 added but nothing called. The run winds down after the trial in flight, so the best attempt is still scored, saved and reported — a finish, not a failure. The button waits ("Stopping…") instead of repeating the request.
+- **Retry run.** A failed or interrupted run shows a retry button next to its error. `POST /api/runs/{id}/retry` starts a *new* run from the same upload and goal; the failed one is kept. This needed the upload's path: `run_owners` gained a `dataset_path` column (added in place for existing databases by `accounts.store._add_missing_columns`). A run recorded before the column existed, or whose file is gone, gets "please upload it again" rather than a 500.
+- **Tuning shown as one bar.** `ctx.report` and the engine's `progress_callback` take an optional `progress=(done, total)` (`engine/progress.py`). `orchestrator._on_progress` rewrites the previous entry instead of appending when the message repeats with progress, so 20 Optuna trials are one activity line with a tqdm-style bar, not 20 lines. The collapsed entry is what gets stored, so a reopened run reads the same way.
+- **Device next to the step.** The same callbacks carry `device`, rendered as *(CPU)* / *(GPU)* in italic after the step name. `model_factory.device_label` reports GPU only for families that actually take GPU parameters (XGBoost, CatBoost), so a host with a GPU does not claim one for a RandomForest. `gpu_is_available` is now cached — it shells out to `nvidia-smi` and is asked once per reported line.
+
+**Verification.** Full suite passes. New tests: retry starts a separate run from the same upload, is refused mid-run, asks for a re-upload when the file is gone, and 404s for another user (`tests/test_web.py`); advancing progress keeps one activity entry and a new stage starts a new one (`tests/test_orchestrator.py`). A scripted-LLM run confirmed the shape of the real log (36 trial lines collapsed to 5, `device` on every execute line). The feed and the two buttons were rendered in headless Chrome against the real module and stylesheet and checked by eye.
+
+**Report text instead of report JSON.** The report header's "Report JSON" dialog is now "Report text": the same findings as the report screen, in reading order, as plain text with the Copy button kept. JSON was the one thing on that page a non-technical user could not read, and it was also the only way to get the report out in one piece. The builder is `web/static/js/report-text.js`, which takes the report object (plus the goal and iteration cap, which the page knows and the payload does not) and returns text — no DOM, so it stays testable. Two readings of the report moved there so the screen and the text cannot drift apart: why a run stopped (`stopKind`) and how assumptions group (`groupAssumptions`). The sprite's `i-braces` icon is replaced by `i-text`.
+
+**Known limitations.** Stopping is offered only while the status is `running` (not while a run waits for clarification). SHAP and profiling lines carry no device; they are CPU-only work and say nothing rather than guessing. The text report drops `constraint_table`, `pareto_front` and `unsupported_recommendations`, which the report screen does not show either (still owed from Phase 11).
 
 ### Phase 13 — Web UI redesign to the reference — done (2026-10-26)
 

@@ -62,7 +62,7 @@ class RunState:
     df: pd.DataFrame
     status: RunStatus = "running"
     current_task: str = "Starting run"
-    activity_log: list[dict[str, str]] = field(default_factory=list)
+    activity_log: list[dict] = field(default_factory=list)  # see web/static/js/renderers.js
     started_at: float = field(default_factory=time.monotonic)
     clarification_question: str | None = None
     requirement: RequirementSpec | None = None
@@ -251,12 +251,28 @@ def _project(values: dict, state: RunState) -> None:
         state.current_task = "Run failed"
 
 
-def _on_progress(state: RunState, task: str, tag: str) -> None:
-    state.current_task = task
+def _on_progress(
+    state: RunState,
+    task: str,
+    tag: str,
+    progress: tuple[int, int] | None = None,
+    device: str | None = None,
+) -> None:
+    state.current_task = f"{task} ({progress[0]}/{progress[1]})" if progress else task
     elapsed = time.monotonic() - state.started_at
-    state.activity_log.append(
-        {"time": f"{elapsed // 60:02.0f}:{elapsed % 60:04.1f}", "tag": tag, "message": task}
-    )
+    entry: dict = {"time": f"{elapsed // 60:02.0f}:{elapsed % 60:04.1f}", "tag": tag, "message": task}
+    if device:
+        entry["device"] = device
+    if progress:
+        entry["progress"] = {"done": progress[0], "total": progress[1]}
+    # Work that advances in place (tuning trials) keeps one entry that is
+    # rewritten, so twenty trials are one line with a bar rather than twenty.
+    last = state.activity_log[-1] if state.activity_log else None
+    if progress and last and last.get("progress") and last["message"] == task and last["tag"] == tag:
+        entry["time"] = last["time"]  # the line was first shown then; it has not restarted
+        state.activity_log[-1] = entry
+    else:
+        state.activity_log.append(entry)
 
 
 def _fail_outside_graph(state: RunState, exc: Exception, repo: ExperimentRepository, graph, graph_config) -> None:

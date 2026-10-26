@@ -15,7 +15,6 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable
 
 import pandas as pd
 from sklearn.base import clone
@@ -38,8 +37,9 @@ from ..schemas import (
 from . import evaluation, hpo, splits
 from .explainability import shap_summary
 from .feature_engineering import build_fe_steps
-from .model_factory import build_estimator, resolve_gpu, supports_class_weight
+from .model_factory import build_estimator, device_label, resolve_gpu, supports_class_weight
 from .preprocessing import IMPUTATION, build_preprocessor, estimate_encoded_width
+from .progress import ProgressCallback
 from .tracking import NoopTracker, Tracker
 from .training import fit_final, peak_rss_mb
 
@@ -233,7 +233,7 @@ def run_attempt(
     budget: AttemptBudget | None = None,
     generate_shap: bool = False,
     use_gpu: bool | None = None,
-    progress_callback: Callable[[str], None] | None = None,
+    progress_callback: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
     tracker: Tracker | None = None,
     tracking_tags: dict[str, str] | None = None,
@@ -274,7 +274,7 @@ def _run_attempt(
     budget: AttemptBudget,
     generate_shap: bool,
     use_gpu: bool | None,
-    progress_callback: Callable[[str], None] | None,
+    progress_callback: ProgressCallback | None,
     cancel_event: threading.Event | None,
     tracker: Tracker,
     tracking_tags: dict[str, str] | None,
@@ -363,6 +363,7 @@ def _run_attempt(
     if requested_trials > budget.max_trials:
         adjustments.append(f"n_trials {requested_trials} clamped to {budget.max_trials}")
     tuner_config = tuner_spec.build(n_trials=min(requested_trials, budget.max_trials))
+    device = device_label(model_spec.name, gpu_enabled)
     balanced = prepared.balanced_class_weights and supports_class_weight(model_spec.name)
     if prepared.balanced_class_weights and not balanced:
         adjustments.append(f"{model_spec.name} has no native class weighting; trained unweighted")
@@ -407,6 +408,7 @@ def _run_attempt(
         progress_callback=progress_callback,
         cancel_event=cancel_event,
         warm_start_params=warm_start_params,
+        device=device,
     )
     diagnostics.append(
         BlockDiagnostics(
@@ -429,7 +431,7 @@ def _run_attempt(
     t0 = time.perf_counter()
     best_params = dict(hpo_result.best_params)
     if progress_callback:
-        progress_callback(f"Cross-validating {model_spec.name}")
+        progress_callback(f"Cross-validating {model_spec.name}", device=device)
     cv_summary = evaluation.cv_evaluate(
         make_pipeline(best_params), X_hpo, y_hpo, cv=cv, groups=groups_hpo, problem_type=problem_type
     )
@@ -443,7 +445,7 @@ def _run_attempt(
     # --- final training on the full training split ---
     pipeline = make_pipeline(best_params)
     if progress_callback:
-        progress_callback(f"Final training of {model_spec.name}")
+        progress_callback(f"Final training of {model_spec.name}", device=device)
     train_seconds = fit_final(pipeline, X_train, y_train)
     diagnostics.append(
         BlockDiagnostics(
@@ -453,7 +455,7 @@ def _run_attempt(
                 "model_family": model_spec.name,
                 "params": best_params,
                 "class_weight": "balanced" if balanced else None,
-                "device": "cuda" if gpu_enabled and model_spec.name in {"XGBoost", "CatBoost"} else "cpu",
+                "device": "cuda" if device == "GPU" else "cpu",
             },
         )
     )

@@ -43,10 +43,19 @@ CREATE TABLE IF NOT EXISTS run_owners (
     user_id TEXT NOT NULL REFERENCES users(id),
     dataset_name TEXT NOT NULL,
     goal TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    dataset_path TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS run_owners_by_user ON run_owners(user_id, created_at);
 """
+
+
+# Columns added after the first release. `CREATE TABLE IF NOT EXISTS` leaves an
+# existing table alone, so they are added here instead.
+_ADDED_COLUMNS = (
+    # Where the upload was saved, so a failed run can be retried from the same file.
+    ("run_owners", "dataset_path", "TEXT NOT NULL DEFAULT ''"),
+)
 
 
 class AccountError(ValueError):
@@ -63,6 +72,11 @@ class OwnedRun(NamedTuple):
     dataset_name: str
     goal: str
     created_at: str
+    dataset_path: str = ""  # empty for runs recorded before the column existed
+
+
+def _owned(row: sqlite3.Row) -> OwnedRun:
+    return OwnedRun(row["run_id"], row["dataset_name"], row["goal"], row["created_at"], row["dataset_path"])
 
 
 def normalize_email(email: str) -> str:
@@ -71,6 +85,13 @@ def normalize_email(email: str) -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, column, declaration in _ADDED_COLUMNS:
+        present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
 def _hash_token(token: str) -> str:
@@ -83,6 +104,7 @@ class AccountStore:
         self.db_path = str(db_path)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            _add_missing_columns(conn)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -159,26 +181,31 @@ class AccountStore:
 
     # --- run ownership -------------------------------------------------------
 
-    def record_run(self, run_id: str, user_id: str, dataset_name: str, goal: str) -> None:
+    def record_run(
+        self, run_id: str, user_id: str, dataset_name: str, goal: str, dataset_path: str = ""
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO run_owners (run_id, user_id, dataset_name, goal, created_at) VALUES (?, ?, ?, ?, ?)",
-                (run_id, user_id, dataset_name, goal, _now().isoformat()),
+                "INSERT INTO run_owners (run_id, user_id, dataset_name, goal, created_at, dataset_path)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (run_id, user_id, dataset_name, goal, _now().isoformat(), dataset_path),
             )
 
     def owned_run(self, run_id: str, user_id: str) -> OwnedRun | None:
         """The run, only if `user_id` owns it. Anyone else gets None."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT run_id, dataset_name, goal, created_at FROM run_owners WHERE run_id = ? AND user_id = ?",
+                "SELECT run_id, dataset_name, goal, created_at, dataset_path"
+                " FROM run_owners WHERE run_id = ? AND user_id = ?",
                 (run_id, user_id),
             ).fetchone()
-        return OwnedRun(row["run_id"], row["dataset_name"], row["goal"], row["created_at"]) if row else None
+        return _owned(row) if row else None
 
     def runs_for_user(self, user_id: str) -> list[OwnedRun]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT run_id, dataset_name, goal, created_at FROM run_owners WHERE user_id = ? ORDER BY created_at DESC",
+                "SELECT run_id, dataset_name, goal, created_at, dataset_path"
+                " FROM run_owners WHERE user_id = ? ORDER BY created_at DESC",
                 (user_id,),
             ).fetchall()
-        return [OwnedRun(r["run_id"], r["dataset_name"], r["goal"], r["created_at"]) for r in rows]
+        return [_owned(r) for r in rows]

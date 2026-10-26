@@ -38,10 +38,9 @@
                 <symbol id="i-download" viewBox="0 0 24 24">
                     <path d="M12 4v12M7 11l5 5 5-5M5 20h14" />
                 </symbol>
-                <symbol id="i-braces" viewBox="0 0 24 24">
-                    <path
-                        d="M8 4c-2 0-3 1-3 3v2c0 1.5-.8 3-2 3 1.2 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5.8 3 2 3-1.2 0-2 1.5-2 3v2c0 2-1 3-3 3"
-                    />
+                <symbol id="i-text" viewBox="0 0 24 24">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 3v5h5M9 12h6M9 16h4" />
                 </symbol>
                 <symbol id="i-out" viewBox="0 0 24 24">
                     <path
@@ -396,6 +395,14 @@
                                     ><span class="dot"></span
                                     ><span id="run-chip-t">Running</span></span
                                 >
+                                <button
+                                    class="btn btn-quiet btn-sm title-end"
+                                    type="button"
+                                    id="stop-btn"
+                                    hidden
+                                >
+                                    Stop run
+                                </button>
                             </div>
                             <p class="goal" id="run-goal"></p>
                         </div>
@@ -450,6 +457,14 @@
                                 >
                                     <svg class="i"><use href="#i-alert" /></svg
                                     ><span id="run-error-t"></span>
+                                    <button
+                                        class="btn btn-quiet btn-sm notice-end"
+                                        type="button"
+                                        id="retry-btn"
+                                        hidden
+                                    >
+                                        Retry run
+                                    </button>
                                 </div>
 
                                 <div class="card card-pad ask" id="ask" hidden>
@@ -540,11 +555,11 @@
                                     <button
                                         class="btn btn-quiet btn-sm"
                                         type="button"
-                                        id="json-btn"
+                                        id="text-btn"
                                     >
                                         <svg class="i">
-                                            <use href="#i-braces" /></svg
-                                        >Report JSON
+                                            <use href="#i-text" /></svg
+                                        >Report text
                                     </button>
                                     <a
                                         class="btn btn-primary btn-sm"
@@ -735,30 +750,30 @@
             </div>
         </div>
 
-        <dialog id="json-dlg" aria-labelledby="json-t">
+        <dialog id="text-dlg" aria-labelledby="text-t">
             <div class="dh">
-                <h2 class="h2" id="json-t">Report JSON</h2>
+                <h2 class="h2" id="text-t">Report text</h2>
                 <button
                     class="icon-btn"
                     type="button"
-                    id="json-x"
+                    id="text-x"
                     aria-label="Close"
                 >
                     <svg class="i"><use href="#i-x" /></svg>
                 </button>
             </div>
-            <pre id="json-pre"></pre>
+            <pre id="text-pre"></pre>
             <div class="df">
                 <button
                     class="btn btn-quiet btn-sm"
                     type="button"
-                    id="json-copy"
+                    id="text-copy"
                 >
                     Copy</button
                 ><button
                     class="btn btn-primary btn-sm"
                     type="button"
-                    id="json-done"
+                    id="text-done"
                 >
                     Close
                 </button>

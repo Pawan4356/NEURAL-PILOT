@@ -90,6 +90,37 @@ def test_cancel_sets_the_event(client, tmp_path):
     assert state.cancel_event.is_set()
 
 
+def test_retry_starts_a_new_run_from_the_same_upload(client):
+    with (FIXTURES / "semicolon_decimal_comma.csv").open("rb") as f:
+        first = client.post("/api/runs", files={"file": ("s.csv", f, "text/csv")}, data={"goal": "predict grade"})
+    run_id = first.json()["run_id"]
+    web_app.RUNS[run_id].status = "failed"
+
+    retried = client.post(f"/api/runs/{run_id}/retry")
+    assert retried.status_code == 200
+    new_id = retried.json()["run_id"]
+    assert new_id != run_id
+    assert web_app.RUNS[new_id].user_goal == "predict grade"
+    assert web_app.RUNS[new_id].dataset_name == "s.csv"
+    # Both runs are listed; the retry does not replace the one that failed.
+    assert {row["run_id"] for row in client.get("/api/runs").json()} == {run_id, new_id}
+
+
+def test_retry_is_refused_while_the_run_is_still_going(client):
+    with (FIXTURES / "semicolon_decimal_comma.csv").open("rb") as f:
+        run_id = client.post(
+            "/api/runs", files={"file": ("s.csv", f, "text/csv")}, data={"goal": "g"}
+        ).json()["run_id"]
+    assert client.post(f"/api/runs/{run_id}/retry").status_code == 400
+
+
+def test_retry_without_a_stored_dataset_asks_for_a_fresh_upload(client):
+    _own("gone")
+    response = client.post("/api/runs/gone/retry")
+    assert response.status_code == 400
+    assert "upload it again" in response.json()["detail"]
+
+
 def test_api_requires_login(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     anonymous = TestClient(web_app.app)
@@ -116,6 +147,7 @@ def test_users_cannot_see_or_touch_each_others_runs(tmp_path, monkeypatch):
     assert bob.get(f"/api/runs/{run_id}").status_code == 404
     assert bob.post(f"/api/runs/{run_id}/clarify", data={"answer": "x"}).status_code == 404
     assert bob.post(f"/api/runs/{run_id}/cancel").status_code == 404
+    assert bob.post(f"/api/runs/{run_id}/retry").status_code == 404
     assert bob.get(f"/api/runs/{run_id}/model").status_code == 404
     assert alice.get(f"/api/runs/{run_id}").status_code == 200
     web_app.RUNS.clear()

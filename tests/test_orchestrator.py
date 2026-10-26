@@ -180,3 +180,26 @@ def test_accepted_answer_keeps_running_until_the_resumed_graph_writes(tmp_path):
     assert resume is not None
     assert state.status == "running"
     assert state.pending_answer is None
+
+
+def test_advancing_progress_keeps_one_activity_line(tmp_path):
+    """Tuning trials rewrite one entry instead of appending one line each."""
+    from neuralpilot import orchestrator
+
+    state = orchestrator.RunState(
+        run_id="r1", dataset_path=tmp_path / "x.csv", dataset_name="x.csv", user_goal="g",
+        df=pd.DataFrame({"a": [1]}),
+    )
+    orchestrator._on_progress(state, "Training and evaluating XGBoost", "execute", device="GPU")
+    for done in range(1, 4):
+        orchestrator._on_progress(state, "Tuning hyperparameters", "execute", (done, 20), "GPU")
+    orchestrator._on_progress(state, "Cross-validating XGBoost", "execute", device="GPU")
+
+    messages = [entry["message"] for entry in state.activity_log]
+    assert messages == ["Training and evaluating XGBoost", "Tuning hyperparameters", "Cross-validating XGBoost"]
+    assert state.activity_log[1]["progress"] == {"done": 3, "total": 20}
+    assert state.activity_log[1]["device"] == "GPU"
+    assert state.current_task == "Cross-validating XGBoost"
+    # A second tuning stage (the next candidate) starts its own line.
+    orchestrator._on_progress(state, "Tuning hyperparameters", "execute", (1, 20), "CPU")
+    assert len(state.activity_log) == 4

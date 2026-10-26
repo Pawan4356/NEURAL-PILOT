@@ -10,12 +10,11 @@ holdout only once per run.
 from __future__ import annotations
 
 import time
-from typing import Callable
-
 import pandas as pd
 
 from . import config
 from .engine import AttemptOutcome, prepare_dataset, run_attempt
+from .engine.progress import ProgressCallback
 from .engine.runner import holdout_evaluate
 from .schemas import BlockDiagnostics, PlanSpec, RequirementSpec
 
@@ -31,7 +30,7 @@ def run_pipeline(
     generate_shap: bool = False,
     random_state: int = config.SEED,
     use_gpu: bool | None = None,
-    progress_callback: Callable[[str], None] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> AttemptOutcome:
     """Run one plan end to end. `result.metrics` are holdout metrics;
     `result.attempt.cv` holds the training-split CV summary."""

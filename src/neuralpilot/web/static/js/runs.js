@@ -1,4 +1,4 @@
-import { createRun, getRun, submitClarification } from './api.js';
+import { cancelRun, createRun, getRun, retryRun, submitClarification } from './api.js';
 import { $, escapeHtml, hide, show } from './dom.js';
 import { refreshRuns, setCurrentRun } from './history.js';
 import { renderRun } from './renderers.js';
@@ -89,6 +89,8 @@ function clearRunScreen() {
   hide('ask-error');
   hide('feed-foot');
   hide('run-error');
+  hide('retry-btn');
+  hide('stop-btn');
 }
 
 /** Put a run on the run screen, ready for polling. */
@@ -148,6 +150,37 @@ function startPolling() {
   fetchStatus();
 }
 
+/** Ask the run to stop after the trial in flight. Whatever it found so far is
+ *  still scored, saved and reported, so this is a finish, not a failure. */
+async function stopRun() {
+  state.stopRequested = true;
+  $('stop-btn').disabled = true;
+  $('stop-btn').textContent = 'Stopping...';
+  try {
+    await cancelRun(state.currentRunId);
+  } catch (error) {
+    state.stopRequested = false;
+    $('run-error-t').textContent = error.message;
+    show('run-error');
+  }
+}
+
+/** Run the same dataset and goal again, as a new run. */
+async function retry() {
+  const goal = $('run-goal').textContent; // the retry keeps the goal, with a new run ID
+  $('retry-btn').disabled = true;
+  try {
+    const run = await retryRun(state.currentRunId);
+    openRunScreen(run.run_id, goal);
+    startPolling();
+    refreshRuns();
+  } catch (error) {
+    $('run-error-t').textContent = error.message;
+  } finally {
+    $('retry-btn').disabled = false;
+  }
+}
+
 async function submitAnswer(event) {
   event.preventDefault();
   const answer = $('ask-in').value.trim();
@@ -202,6 +235,8 @@ export function initRuns() {
   });
   $('new-form').onsubmit = startRun;
   $('ask-form').onsubmit = submitAnswer;
+  $('stop-btn').onclick = stopRun;
+  $('retry-btn').onclick = retry;
   $('view-report-btn').onclick = () => showScreen('report');
   $('new-run-btn').onclick = startNewRun;
   $('brand-link').onclick = (event) => {

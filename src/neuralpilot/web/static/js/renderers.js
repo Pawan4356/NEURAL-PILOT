@@ -20,10 +20,42 @@ function isEngineStep(tag) {
   return /engine|verif/i.test(tag);
 }
 
+// The log's tags are either generic or already name the step, so only the
+// known short ones are given a display name.
+const STEP_NAMES = {
+  agent: 'Agent',
+  engine: 'Engine',
+  execute: 'Execute',
+  plan: 'Plan',
+  requirement: 'Requirement',
+};
+
 function stepName(tag) {
-  if (tag === 'agent') return 'Agent';
-  if (tag === 'engine') return 'Engine';
-  return tag;
+  return STEP_NAMES[tag] || tag;
+}
+
+/** One activity line. A line with `progress` is rewritten in place as the work
+ *  advances, so the whole line is built here rather than appended to. */
+function lineHtml(item) {
+  const device = item.device
+    ? `<span class="ev-dev">(${escapeHtml(item.device)})</span>`
+    : '';
+  const bar = item.progress ? progressHtml(item.progress) : '';
+  return (
+    `<span class="ev-time num">${escapeHtml(item.time)}</span>` +
+    '<span class="ev-node"></span>' +
+    `<div class="ev-body"><span class="ev-name">${escapeHtml(stepName(item.tag))}${device}</span>` +
+    `<p>${formatMessage(item.message)}</p>${bar}</div>`
+  );
+}
+
+function progressHtml({ done, total }) {
+  const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return (
+    `<div class="ev-bar" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="${total}">` +
+    `<span class="ev-bar-fill" style="width:${percent}%"></span></div>` +
+    `<span class="ev-bar-n num">${done}/${total}</span>`
+  );
 }
 
 export function renderConfig(cfg) {
@@ -32,19 +64,21 @@ export function renderConfig(cfg) {
   $('model-chip').title = `source: ${cfg.llm_source}${cfg.llm_key_configured ? '' : ' (no API key configured)'}`;
 }
 
-/** Append activity lines the timeline has not shown yet. */
+/** Append activity lines the timeline has not shown yet, and refresh the last
+ *  one if it is a progress line that has advanced since the previous poll. */
 export function renderActivity(data) {
   const activity = data.activity_log || [];
   const feed = $('feed');
 
+  const shown = activity[state.seenActivity - 1];
+  if (shown?.progress && feed.lastElementChild) {
+    feed.lastElementChild.innerHTML = lineHtml(shown);
+  }
+
   activity.slice(state.seenActivity).forEach((item) => {
     const line = document.createElement('li');
     line.className = `ev ev-enter ${isEngineStep(item.tag) ? 'is-engine' : 'is-agent'}`;
-    line.innerHTML =
-      `<span class="ev-time num">${escapeHtml(item.time)}</span>` +
-      '<span class="ev-node"></span>' +
-      `<div class="ev-body"><span class="ev-name">${escapeHtml(stepName(item.tag))}</span>` +
-      `<p>${formatMessage(item.message)}</p></div>`;
+    line.innerHTML = lineHtml(item);
     feed.appendChild(line);
   });
 
@@ -61,6 +95,12 @@ export function renderRun(data) {
   $('run-chip-t').textContent = chipText;
   $('working').hidden = !running;
 
+  // Stopping is only possible while the run is live, and only once: the request
+  // is honoured after the trial in flight, so the button waits rather than repeats.
+  $('stop-btn').hidden = !running;
+  $('stop-btn').disabled = state.stopRequested;
+  $('stop-btn').textContent = state.stopRequested ? 'Stopping...' : 'Stop run';
+
   // `iteration` counts finished iterations; while one is in flight, show it as the current one.
   const max = data.max_iterations;
   $('p-iter').textContent = running ? `${Math.min(data.iteration + 1, max)} of ${max}` : `${data.iteration} of ${max}`;
@@ -75,9 +115,12 @@ export function renderRun(data) {
     $('ask-q').textContent = data.clarification_question || 'Which column is the target?';
   }
 
+  // The same notice reports a failed run and a failed poll, but only a failed
+  // run can be retried, so the button follows the status rather than the notice.
   const broken = data.status === 'failed' || data.status === 'interrupted';
   $('run-error-t').textContent = data.error || 'The run failed.';
   $('run-error').hidden = !broken;
+  $('retry-btn').hidden = !broken;
 
   $('feed-foot').hidden = data.status !== 'finalized';
   if (data.status === 'finalized' && data.final_report) {

@@ -154,6 +154,8 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .notice.is-error svg{color:var(--stop)}
 .notice.is-warn{background:var(--warn-bg)}
 .notice.is-warn svg{color:var(--warn)}
+/* An action that belongs to a notice sits at its end, centred on the text. */
+.notice-end{margin:-4px -4px -4px auto;align-self:center;flex:none;background:var(--surface)}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow);transition:background-color var(--t-base) var(--ease),border-color var(--t-base) var(--ease)}
 .card-pad{padding:24px}
@@ -380,6 +382,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
    Run
    ------------------------------------------------------------------ */
 .title-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.title-row .title-end{margin-left:auto}
 .goal{color:var(--ink-2);max-width:64ch;font-size:16px;padding-left:16px;border-left:2px solid var(--line)}
 .run-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
 .aside{position:sticky;top:20px;display:grid;gap:20px}
@@ -398,6 +401,12 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .ev.is-engine .ev-node{width:10px;height:10px;margin:5px 2px;background:var(--ink);border-radius:2px}
 .ev.is-warn .ev-node{background:var(--warn)}
 .ev-name{font-weight:650;font-size:14px;display:block}
+/* Which compute the step is running on, e.g. Execute (GPU). */
+.ev-dev{font-style:italic;font-weight:500;color:var(--ink-3);margin-left:5px}
+/* tqdm-style bar for work that advances in place, e.g. tuning trials. */
+.ev-bar{display:inline-block;vertical-align:middle;width:min(240px,100%);height:6px;margin-top:8px;border-radius:999px;background:var(--sunk);overflow:hidden}
+.ev-bar-fill{display:block;height:100%;border-radius:999px;background:var(--blue);transition:width var(--t-base) var(--ease)}
+.ev-bar-n{display:inline-block;vertical-align:middle;margin:8px 0 0 10px;font-size:12.5px;color:var(--ink-3)}
 .ev-body p{color:var(--ink-2);font-size:14.5px;max-width:68ch;text-wrap:pretty}
 .ev-body p b{color:var(--ink);font-weight:650}
 .ev-enter{animation:slide-in .2s var(--ease) both}

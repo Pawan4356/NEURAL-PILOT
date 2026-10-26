@@ -37,6 +37,7 @@ from ..agents.requirement_agent import (
 from ..candidates import WarmStart, build_candidates
 from ..engine import AttemptBudget, plan_signature, run_attempt
 from ..engine.explainability import shap_summary
+from ..engine.model_factory import device_label, resolve_gpu
 from ..engine.runner import AttemptOutcome, holdout_evaluate
 from ..meta_features import DatasetMetaFeatures, extract_meta_features
 from ..plan_resolution import PlanProfile, PlanRejection, resolve
@@ -434,6 +435,10 @@ def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
     candidates = state.get("candidates") or [CandidatePlan(source="planner", plan=state["plan"])]
     prepared = resources.prepared_data(state)
 
+    # Resolved the same way `run_attempt` resolves it (auto-detect), so the
+    # device reported for an attempt is the one it will train on.
+    gpu_enabled, _ = resolve_gpu(None)
+
     share = len(candidates)
     trials_each = max(config.HPO_MAX_TRIALS // share, config.MIN_TRIALS_PER_CANDIDATE)
     timeout_each = max(1.0, min(config.HPO_TIMEOUT_S, budget_left_s(state) * 0.8)) / share
@@ -453,13 +458,18 @@ def execute(state: NPState, runtime: Runtime[RunContext]) -> dict:
                 log.append(_candidate_entry(candidate, signature, "skipped", reason=skip_reason))
                 continue
         label = candidate.plan.model_family if index == 0 else f"{candidate.plan.model_family} (challenger)"
-        ctx.report(f"Training and evaluating {label}")
+        # The device the attempt resolves for itself, so the first line of the
+        # attempt already says where it runs; the engine repeats it per line.
+        device = device_label(candidate.plan.model_family, gpu_enabled)
+        ctx.report(f"Training and evaluating {label}", "execute", device=device)
         try:
             outcome = run_attempt(
                 candidate.plan,
                 prepared,
                 budget=AttemptBudget(max_trials=trials_each, hpo_timeout_s=timeout_each),
-                progress_callback=lambda task: ctx.report(task, "execute"),
+                progress_callback=lambda task, *, progress=None, device=None: ctx.report(
+                    task, "execute", progress=progress, device=device
+                ),
                 cancel_event=ctx.cancel_event,
                 tracker=ctx.tracker,
                 tracking_tags={

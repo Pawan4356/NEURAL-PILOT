@@ -105,6 +105,14 @@ def _live_state(run_id: str) -> RunState | None:
         return RUNS.get(run_id)
 
 
+def _start(state: RunState) -> dict:
+    """Track the run and advance it on a background thread."""
+    with _RUNS_LOCK:
+        RUNS[state.run_id] = state
+    threading.Thread(target=_run_in_background, args=(state.run_id,), daemon=True).start()
+    return _serialize(state)
+
+
 def _owned_run(run_id: str, user: User, accounts: AccountStore) -> OwnedRun:
     """The run, if this user owns it. Other users' runs get the same 404 as
     unknown ones, so the API does not reveal which run IDs exist."""
@@ -230,14 +238,8 @@ async def create_run_endpoint(
 
     # Ownership is recorded before the run starts, so a run interrupted by a restart
     # still shows up in its owner's list.
-    accounts.record_run(state.run_id, user.id, file.filename, goal)
-    with _RUNS_LOCK:
-        RUNS[state.run_id] = state
-
-    thread = threading.Thread(target=_run_in_background, args=(state.run_id,), daemon=True)
-    thread.start()
-
-    return JSONResponse(_serialize(state))
+    accounts.record_run(state.run_id, user.id, file.filename, goal, str(dataset_path))
+    return JSONResponse(_start(state))
 
 
 @app.get("/api/runs/{run_id}")
@@ -274,10 +276,31 @@ def clarify_run(
     except InvalidClarification as exc:
         # The run stays awaiting clarification; the user can answer again.
         raise HTTPException(400, str(exc)) from exc
-    thread = threading.Thread(target=_run_in_background, args=(run_id,), daemon=True)
-    thread.start()
+    return JSONResponse(_start(state))
 
-    return JSONResponse(_serialize(state))
+
+@app.post("/api/runs/{run_id}/retry")
+def retry_run(
+    run_id: str, user: User = Depends(current_user), accounts: AccountStore = Depends(get_accounts)
+) -> JSONResponse:
+    """Start a fresh run from the same upload and goal, after a failure. The
+    original run is left as it is; the retry is a new run with its own ID."""
+    owned = _owned_run(run_id, user, accounts)
+    state = _live_state(run_id)
+    if state is not None and state.status == "running":
+        raise HTTPException(400, "This run is still in progress.")
+
+    dataset_path = Path(owned.dataset_path) if owned.dataset_path else None
+    if dataset_path is None or not dataset_path.exists():
+        raise HTTPException(400, "The uploaded dataset is no longer available. Please upload it again.")
+
+    try:
+        retried = create_run(dataset_path, owned.dataset_name, owned.goal)
+    except Exception as exc:
+        raise HTTPException(400, f"Could not read dataset: {exc}") from exc
+
+    accounts.record_run(retried.run_id, user.id, owned.dataset_name, owned.goal, str(dataset_path))
+    return JSONResponse(_start(retried))
 
 
 @app.post("/api/runs/{run_id}/cancel")

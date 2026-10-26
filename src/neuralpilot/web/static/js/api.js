@@ -68,6 +68,17 @@ export async function submitClarification(runId, answer) {
   return parseJsonResponse(response, 'Could not submit clarification');
 }
 
+export async function cancelRun(runId) {
+  const response = await fetch(`/api/runs/${runId}/cancel`, { method: 'POST' });
+  return parseJsonResponse(response, 'Could not stop the run');
+}
+
+/** Start a new run from the same dataset and goal. Returns the new run. */
+export async function retryRun(runId) {
+  const response = await fetch(`/api/runs/${runId}/retry`, { method: 'POST' });
+  return parseJsonResponse(response, 'Could not retry the run');
+}
+
 export async function getConfig() {
   const response = await fetch('/api/config');
   return parseJsonResponse(response, 'Could not load configuration');

@@ -1,6 +1,7 @@
 import { pathChart } from './chart.js';
 import { $, escapeHtml, hide, show } from './dom.js';
 import { featureName, metric, seconds, SUSPICIOUS_SCORE } from './format.js';
+import { groupAssumptions, reportText, sentence, stopKind } from './report-text.js';
 import { state } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -25,33 +26,6 @@ function renderScoreWarning(report, primary, holdoutScore) {
   show('score-warning');
 }
 
-/** A forced finish is not one thing. Running out of wall-clock is an early
- *  stop the user should worry about; reaching the iteration cap is the run
- *  ending as configured. Saying "stopped early" for both is its own lie. */
-function stopKind(report) {
-  if (!report.final_decision_forced) return null;
-  const why = String(report.final_decision_rationale || '');
-  if (/budget|time|exhaust/i.test(why)) {
-    return {
-      warn: true,
-      headline: 'The run ran out of time, it did not converge.',
-      advice: 'The best attempt so far was kept and finalized — more time could still improve on it. Raise NEURALPILOT_RUN_BUDGET_S to let it finish.',
-    };
-  }
-  if (/max_iterations|iteration_count/i.test(why)) {
-    return {
-      warn: false,
-      headline: 'The run finished because it hit its iteration limit.',
-      advice: 'It stopped as configured rather than because it stopped improving. Raise NEURALPILOT_MAX_ITERATIONS to let it keep refining.',
-    };
-  }
-  return {
-    warn: false,
-    headline: 'The run was ended by a guardrail.',
-    advice: 'The best attempt so far was kept and finalized.',
-  };
-}
-
 function renderStopReason(report) {
   const kind = stopKind(report);
   if (!kind) {
@@ -61,7 +35,7 @@ function renderStopReason(report) {
   const box = $('stop-reason');
   box.className = kind.warn ? 'notice is-warn' : 'notice';
   box.innerHTML =
-    `<svg class="i"><use href="#i-info"/></svg><span><b>${escapeHtml(kind.headline)}</b> ${escapeHtml(report.final_decision_rationale || '')} ` +
+    `<svg class="i"><use href="#i-info"/></svg><span><b>${escapeHtml(kind.headline)}</b> ${escapeHtml(sentence(report.final_decision_rationale))} ` +
     `${escapeHtml(kind.advice)}</span>`;
   show('stop-reason');
 }
@@ -212,30 +186,14 @@ function renderFacts(report) {
   }
 }
 
-/** Assumptions arrive as one flat list mixing "what we decided about your data"
- *  with engine bookkeeping, often repeating the same substitution once per
- *  iteration. Split them and collapse the repeats. */
 function renderNotes(report) {
-  const assumptions = report.assumptions || [];
-  const aboutData = /excluded from features|target|task is|converted to numbers|class|objective|metric name/i;
-  const groups = { 'What it decided about your data': new Map(), 'Engine bookkeeping': new Map() };
-
-  assumptions.forEach((raw) => {
-    const text = String(raw);
-    const body = text.replace(/^iteration \d+:\s*/i, '');
-    const key = aboutData.test(text) && !/^iteration \d+:/i.test(text)
-      ? 'What it decided about your data'
-      : 'Engine bookkeeping';
-    groups[key].set(body, (groups[key].get(body) || 0) + 1);
-  });
+  const { about, engine } = groupAssumptions(report.assumptions);
 
   const items = (map) =>
     [...map.entries()]
       .map(([text, count]) => `<li>${escapeHtml(text)}${count > 1 ? ` <span class="pill">×${count}</span>` : ''}</li>`)
       .join('');
 
-  const about = groups['What it decided about your data'];
-  const engine = groups['Engine bookkeeping'];
   let html = '';
   if (about.size) html += `<h3>What it decided about your data</h3><ul>${items(about)}</ul>`;
   if (engine.size) {
@@ -267,26 +225,33 @@ export function renderReport(report) {
   renderNotes(report);
 }
 
-/** Report JSON opens in a dialog so it can be read and copied without a download. */
-function initJsonDialog() {
-  const dialog = $('json-dlg');
-  $('json-btn').onclick = () => {
-    $('json-pre').textContent = JSON.stringify(state.lastReport, null, 2);
+/** The report as text opens in a dialog, so it can be read and copied in one
+ *  click without downloading anything. */
+function initTextDialog() {
+  const dialog = $('text-dlg');
+  $('text-btn').onclick = () => {
+    // The goal and the iteration cap belong to the page, not to the report payload.
+    $('text-pre').textContent = reportText(state.lastReport, {
+      goal: $('report-goal').textContent,
+      maxIterations: state.config?.max_iterations,
+    });
     dialog.showModal();
   };
-  ['json-x', 'json-done'].forEach((id) => {
+  ['text-x', 'text-done'].forEach((id) => {
     $(id).onclick = () => dialog.close();
   });
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
   });
-  $('json-copy').onclick = async (event) => {
+  $('text-copy').onclick = async (event) => {
     try {
-      await navigator.clipboard.writeText($('json-pre').textContent);
+      await navigator.clipboard.writeText($('text-pre').textContent);
       event.target.textContent = 'Copied';
       setTimeout(() => (event.target.textContent = 'Copy'), 1500);
     } catch (error) {
       // Clipboard access can be blocked; the text is still on screen to copy by hand.
+      event.target.textContent = 'Press Ctrl+C';
+      setTimeout(() => (event.target.textContent = 'Copy'), 2500);
     }
   };
 }
@@ -314,6 +279,6 @@ function initTabs() {
 }
 
 export function initReport() {
-  initJsonDialog();
+  initTextDialog();
   initTabs();
 }

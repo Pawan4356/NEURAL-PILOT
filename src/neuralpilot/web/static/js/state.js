@@ -5,6 +5,7 @@ export const state = {
   seenActivity: 0,
   lastReport: null,
   showReportWhenReady: false, // set when a finished run is opened from the list
+  stopRequested: false, // the stop button was pressed; the run winds down on its own
 };
 
 export function resetRunState() {
@@ -12,6 +13,7 @@ export function resetRunState() {
   state.lastReport = null;
   state.seenActivity = 0;
   state.showReportWhenReady = false;
+  state.stopRequested = false;
 }
 
 export function stopPolling() {

@@ -7,6 +7,7 @@ class weighting is applied where the estimator has a native option.
 
 from __future__ import annotations
 
+import functools
 import shutil
 import subprocess
 
@@ -24,8 +25,12 @@ _CLASS_WEIGHT_PARAMS: dict[str, dict] = {
 }
 
 
+@functools.cache
 def gpu_is_available() -> bool:
-    """Return whether the host exposes an NVIDIA GPU through nvidia-smi."""
+    """Return whether the host exposes an NVIDIA GPU through nvidia-smi.
+
+    Cached: the answer cannot change while the process runs, and it is asked
+    once per attempt plus once per progress line that names the device."""
     nvidia_smi = shutil.which("nvidia-smi")
     if nvidia_smi is None:
         return False
@@ -61,6 +66,12 @@ def gpu_model_params(model_family: str, gpu_enabled: bool) -> dict:
     if model_family == "CatBoost":
         return {"task_type": "GPU", "devices": "0"}
     return {}
+
+
+def device_label(model_family: str, gpu_enabled: bool) -> str:
+    """The compute this family will actually use, for the UI. A GPU on the host
+    only matters to families that take GPU parameters; the rest train on CPU."""
+    return "GPU" if gpu_model_params(model_family, gpu_enabled) else "CPU"
 
 
 def class_weight_params(model_family: str, problem_type: ProblemType, balanced: bool) -> dict:

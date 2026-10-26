@@ -21,7 +21,7 @@ from ..repository import ExperimentRepository
 logger = logging.getLogger(__name__)
 
 
-def _ignore_progress(task: str, tag: str) -> None:
+def _ignore_progress(task: str, tag: str, progress: tuple[int, int] | None, device: str | None) -> None:
     pass
 
 
@@ -29,16 +29,25 @@ def _ignore_progress(task: str, tag: str) -> None:
 class RunContext:
     repo: ExperimentRepository
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    on_progress: Callable[[str, str], None] = _ignore_progress
+    on_progress: Callable[[str, str, tuple[int, int] | None, str | None], None] = _ignore_progress
     llm: LLMClient | None = None  # None = the process-wide default client
     run_id: str = ""
     tracker: Tracker = field(default_factory=NoopTracker)  # MLflow or no-op (Phase 6)
     knowledge: KnowledgeStore | None = None  # documentation index, None until it is built (Phase 8)
 
-    def report(self, task: str, tag: str = "agent") -> None:
-        """Tell the UI what the run is doing right now."""
+    def report(
+        self,
+        task: str,
+        tag: str = "agent",
+        *,
+        progress: tuple[int, int] | None = None,
+        device: str | None = None,
+    ) -> None:
+        """Tell the UI what the run is doing right now. `progress` marks a line
+        that advances in place (a bar, not one line per step) and `device` names
+        the compute the work runs on; see `engine.progress`."""
         logger.info("run=%s task=%s", self.run_id, task)
-        self.on_progress(task, tag)
+        self.on_progress(task, tag, progress, device)
 
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()

@@ -23,6 +23,7 @@ from sklearn.metrics import get_scorer
 from sklearn.pipeline import Pipeline
 
 from ..schemas import ProblemType
+from .progress import ProgressCallback
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -121,9 +122,10 @@ def tune(
     n_trials: int,
     timeout_s: float | None,
     seed: int,
-    progress_callback: Callable[[str], None] | None = None,
+    progress_callback: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
     warm_start_params: dict | None = None,
+    device: str | None = None,
 ) -> HPOResult:
     start = time.perf_counter()
     if sampler_name == "none" or n_trials <= 0:
@@ -163,7 +165,10 @@ def tune(
 
     def on_trial_end(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
         if progress_callback:
-            progress_callback(f"Hyperparameter tuning: trial {len(study.trials)}/{n_trials}")
+            # One advancing line, not one line per trial: the UI draws the bar.
+            progress_callback(
+                "Tuning hyperparameters", progress=(len(study.trials), n_trials), device=device
+            )
         if cancel_event is not None and cancel_event.is_set():
             study.stop()
 
