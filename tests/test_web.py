@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -232,3 +233,56 @@ def test_full_web_flow_runs_the_graph_through_clarification(tmp_path, monkeypatc
     assert run_id not in web_app.RUNS
     assert client.get(f"/api/runs/{run_id}/model").status_code == 200
     web_app.RUNS.clear()
+
+
+def test_every_element_id_the_js_looks_up_exists_in_the_page():
+    """The ids are the only contract between index.html and the modules. The
+    shell starts with #app and #auth both hidden, so one module reaching for an
+    element the page no longer has throws during start-up and leaves a blank
+    page — no shell, no sign-in form, no error."""
+    static = Path(web_app.__file__).parent / "static"
+    page_ids = set(re.findall(r'id="([\w-]+)"', (static / "index.html").read_text()))
+    lookup = re.compile(r"""(?:\$|show|hide|getElementById)\(['"]([\w-]+)['"]\)""")
+
+    for module in sorted((static / "js").glob("*.js")):
+        missing = sorted(set(lookup.findall(module.read_text())) - page_ids)
+        assert not missing, f"{module.name} looks up ids missing from index.html: {missing}"
+
+
+def test_page_loads_its_assets_from_a_fingerprinted_path(client):
+    """`no-store` only applies to responses a browser actually fetches. A module
+    cached before that header existed stays fresh for days and is never
+    re-requested, so an old module runs against a newer page and throws on the
+    first element that page has dropped. A URL carrying the build's fingerprint
+    cannot be served from that cache at all."""
+    page = client.get("/").text
+    assert "/static/js/app.js" not in page
+    assert re.search(r'src="/assets/[0-9a-f]{12}/js/app\.js"', page)
+
+    asset_url = re.search(r'src="(/assets/[^"]+app\.js)"', page).group(1)
+    response = client.get(asset_url)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.text == (Path(web_app.__file__).parent / "static/js/app.js").read_text()
+
+
+def test_asset_fingerprint_changes_when_a_module_changes(client):
+    first = client.get("/").text
+    module = Path(web_app.__file__).parent / "static" / "js" / "app.js"
+    original = module.read_text()
+    try:
+        module.write_text(f"{original}\n// touched\n")
+        assert client.get("/").text != first
+    finally:
+        module.write_text(original)
+
+
+def test_page_and_modules_are_never_cached(client):
+    assert client.get("/").headers["cache-control"] == "no-store"
+    assert client.get("/static/js/app.js").headers["cache-control"] == "no-store"
+    assert client.get("/static/css/app.css").headers["cache-control"] == "no-store"
+
+
+def test_versioned_assets_cannot_escape_the_static_directory(client):
+    assert client.get("/assets/deadbeef/../../app.py").status_code == 404
+    assert client.get("/assets/deadbeef/js/nope.js").status_code == 404

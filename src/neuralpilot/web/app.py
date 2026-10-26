@@ -8,6 +8,7 @@ for status.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import threading
 import uuid
@@ -31,7 +32,54 @@ app.include_router(auth_router)
 _STATIC_DIR = Path(__file__).parent / "static"
 _LOGO_PATH = Path(__file__).resolve().parents[3] / "media" / "Logo.svg"
 _FAVICON_PATH = Path(__file__).resolve().parents[3] / "media" / "favicon.svg"
-app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+class _NoStoreStatic(StaticFiles):
+    """The page and its modules are one unit: the HTML names the element ids the
+    modules look up. A browser holding a cached module while the page has moved
+    on throws on the first element that page no longer has, so nothing here is
+    ever stored."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.mount("/static", _NoStoreStatic(directory=_STATIC_DIR), name="static")
+
+
+def _asset_version() -> str:
+    """A fingerprint of every file the page loads.
+
+    `Cache-Control: no-store` only governs responses a browser actually fetches.
+    A copy cached before that header existed stays fresh on its `Last-Modified`
+    heuristic for days and is simply never re-requested, so an old module keeps
+    running against a new page. A URL that changes with the files cannot be
+    answered from that cache at all.
+    """
+    stamp = hashlib.sha256()
+    for path in sorted(_STATIC_DIR.rglob("*")):
+        if path.is_file():
+            info = path.stat()
+            stamp.update(f"{path.relative_to(_STATIC_DIR)}:{info.st_mtime_ns}:{info.st_size}".encode())
+    return stamp.hexdigest()[:12]
+
+
+@app.get("/assets/{version}/{asset_path:path}")
+def versioned_asset(version: str, asset_path: str) -> Response:
+    """Serve a static file under a fingerprinted path.
+
+    The version segment exists only to make the URL change; the file is the one
+    `/static` serves. Relative module imports resolve against this prefix too,
+    so one versioned entry point pulls the whole module graph in fresh rather
+    than leaving `api.js` and its siblings on their cached copies.
+    """
+    target = (_STATIC_DIR / asset_path).resolve()
+    if not target.is_file() or _STATIC_DIR.resolve() not in target.parents:
+        raise HTTPException(404, "Not found")
+    return FileResponse(target, headers={"Cache-Control": "no-store"})
+
 
 # Active runs only. A finished run is evicted here (its DataFrame is large) and
 # served from the experiment store from then on.
@@ -103,7 +151,11 @@ def _serialize(state: RunState) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return HTMLResponse((_STATIC_DIR / "index.html").read_text())
+    page = (_STATIC_DIR / "index.html").read_text()
+    # The page and its assets ship as one unit: point it at this build's
+    # fingerprinted URLs so a browser cannot pair it with an older module.
+    page = page.replace('"/static/', f'"/assets/{_asset_version()}/')
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/config")
