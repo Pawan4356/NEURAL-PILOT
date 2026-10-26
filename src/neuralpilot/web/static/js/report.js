@@ -153,7 +153,7 @@ function renderShap(report) {
       return (
         `<div class="shap-row"><span class="nm" title="${escapeHtml(feature.feature)}">` +
         `${escapeHtml(featureName(feature.feature))}</span>` +
-        `<span class="tr"><i style="width:${width.toFixed(0)}%;animation-delay:${i * 50}ms"></i></span>` +
+        `<span class="tr"><i style="width:${width.toFixed(0)}%;animation-delay:${i * 35}ms"></i></span>` +
         `<span class="v num">${Number(feature.mean_abs_shap).toFixed(3)}</span></div>`
       );
     })

@@ -1,292 +1,770 @@
 <!doctype html>
 <html lang="en" data-theme="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Neural Pilot - Console</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Hanken+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="/static/css/app.css">
-</head>
-<body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Neural Pilot - Console</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Hanken+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap"
+        />
+        <link rel="stylesheet" href="/static/css/app.css" />
+    </head>
+    <body>
+        <!-- Icon sprite. Icons inherit colour from CSS, so they follow the theme. -->
+        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+            <defs>
+                <symbol id="i-plus" viewBox="0 0 24 24">
+                    <path d="M12 5v14M5 12h14" />
+                </symbol>
+                <symbol id="i-upload" viewBox="0 0 24 24">
+                    <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
+                </symbol>
+                <symbol id="i-sun" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="4" />
+                    <path
+                        d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+                    />
+                </symbol>
+                <symbol id="i-moon" viewBox="0 0 24 24">
+                    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+                </symbol>
+                <symbol id="i-menu" viewBox="0 0 24 24">
+                    <path d="M4 7h16M4 12h16M4 17h16" />
+                </symbol>
+                <symbol id="i-download" viewBox="0 0 24 24">
+                    <path d="M12 4v12M7 11l5 5 5-5M5 20h14" />
+                </symbol>
+                <symbol id="i-braces" viewBox="0 0 24 24">
+                    <path
+                        d="M8 4c-2 0-3 1-3 3v2c0 1.5-.8 3-2 3 1.2 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5.8 3 2 3-1.2 0-2 1.5-2 3v2c0 2-1 3-3 3"
+                    />
+                </symbol>
+                <symbol id="i-out" viewBox="0 0 24 24">
+                    <path
+                        d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M16 8l4 4-4 4M20 12H9"
+                    />
+                </symbol>
+                <symbol id="i-eye" viewBox="0 0 24 24">
+                    <path
+                        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"
+                    />
+                    <circle cx="12" cy="12" r="3" />
+                </symbol>
+                <symbol id="i-info" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 11v5M12 8h.01" />
+                </symbol>
+                <symbol id="i-alert" viewBox="0 0 24 24">
+                    <path d="M12 3 2 20h20z" />
+                    <path d="M12 10v4.5M12 17.5h.01" />
+                </symbol>
+                <symbol id="i-x" viewBox="0 0 24 24">
+                    <path d="M6 6l12 12M18 6 6 18" />
+                </symbol>
+            </defs>
+        </svg>
 
-<!-- Icon sprite. Icons inherit colour from CSS, so they follow the theme. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></symbol>
-    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
-    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
-    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
-    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></symbol>
-    <symbol id="i-braces" viewBox="0 0 24 24"><path d="M8 4c-2 0-3 1-3 3v2c0 1.5-.8 3-2 3 1.2 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5.8 3 2 3-1.2 0-2 1.5-2 3v2c0 2-1 3-3 3"/></symbol>
-    <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M16 8l4 4-4 4M20 12H9"/></symbol>
-    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
-    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
-    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
-    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
-    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
-  </defs>
-</svg>
-
-<!-- ============ Sign in / sign up ============ -->
-<div class="auth" id="auth" hidden>
-  <div class="auth-form">
-    <div class="auth-top">
-      <img class="logo" data-logo src="/logo.svg?theme=dark" alt="Neural Pilot">
-      <button class="icon-btn theme-btn" type="button" aria-label="Switch theme"></button>
-    </div>
-    <div class="auth-card">
-      <h1 class="h1" id="a-title">Sign in to Neural Pilot</h1>
-      <p class="lede" id="a-sub">Start a run or reopen your previous ones. Each account sees only its own runs.</p>
-      <form id="a-form" novalidate>
-        <div class="field">
-          <label class="label" for="a-email">Email</label>
-          <input class="input" id="a-email" type="email" autocomplete="email" placeholder="you@company.com">
-        </div>
-        <div class="field">
-          <div class="label-row">
-            <label class="label" for="a-pw">Password</label>
-            <span class="hint" id="a-hint" hidden>At least 8 characters.</span>
-          </div>
-          <div class="pw">
-            <input class="input" id="a-pw" type="password" autocomplete="current-password">
-            <button type="button" id="a-eye" aria-label="Show password"><svg class="i"><use href="#i-eye"/></svg></button>
-          </div>
-        </div>
-        <div class="notice is-error" id="a-error" role="alert" hidden style="margin-bottom:16px"><svg class="i"><use href="#i-alert"/></svg><span id="a-error-t"></span></div>
-        <button class="btn btn-primary btn-block" id="a-btn" type="submit">Log in</button>
-      </form>
-      <p class="auth-switch"><span id="a-q">No account?</span> <button class="btn-text btn" type="button" id="a-toggle">Sign up</button></p>
-    </div>
-  </div>
-  <aside class="auth-art" aria-label="How a run works">
-    <div class="route">
-      <h2>From a CSV to a validated model, in a loop you can read.</h2>
-      <ol>
-        <li><span class="n agent"></span><div><b>Understand</b><p>Finds the target column and what you care about.</p></div></li>
-        <li><span class="n agent"></span><div><b>Plan</b><p>Picks one pipeline from trusted scikit-learn, XGBoost and CatBoost parts.</p></div></li>
-        <li><span class="n engine"></span><div><b>Verify and execute</b><p>Checks the plan, then trains, tunes and validates. The LLM never writes code.</p></div></li>
-        <li><span class="n agent"></span><div><b>Reflect and decide</b><p>Accepts the result, refines it, replans or stops.</p></div></li>
-      </ol>
-      <div class="key"><span><i class="a"></i>Agent reasons</span><span><i class="e"></i>Engine does the work</span></div>
-      <p class="lede-sm">Reflection feeds back into planning until the result is accepted or the iteration limit is reached.</p>
-    </div>
-  </aside>
-</div>
-
-<!-- ============ App shell ============ -->
-<div class="app" id="app" hidden>
-  <div class="scrim" id="scrim"></div>
-
-  <aside class="rail" id="rail" aria-label="Navigation">
-    <a class="rail-brand" href="#" id="brand-link" aria-label="Neural Pilot, new run">
-      <img class="logo" data-logo src="/logo.svg?theme=dark" alt="Neural Pilot">
-    </a>
-    <button class="btn btn-primary" type="button" id="new-run-btn"><svg class="i"><use href="#i-plus"/></svg>New run</button>
-    <div class="rail-scroll">
-      <p class="rail-title">Your runs</p>
-      <div class="runs" id="runs-list"></div>
-      <p class="hint" id="runs-empty" hidden>No runs yet. Start one from New run.</p>
-      <div class="notice is-error" id="runs-error" role="alert" hidden><svg class="i"><use href="#i-alert"/></svg><span id="runs-error-t"></span></div>
-    </div>
-    <div class="rail-foot">
-      <span class="avatar" id="avatar" aria-hidden="true"></span>
-      <div class="who"><b id="who-email"></b><span>Signed in</span></div>
-      <button class="icon-btn" type="button" id="logout-btn" aria-label="Log out" title="Log out"><svg class="i"><use href="#i-out"/></svg></button>
-    </div>
-  </aside>
-
-  <div class="main">
-    <header class="bar">
-      <button class="icon-btn menu-btn" type="button" id="menu-btn" aria-label="Open runs"><svg class="i"><use href="#i-menu"/></svg></button>
-      <nav class="crumb" aria-label="Breadcrumb"><span>Runs</span><span aria-hidden="true">/</span><b id="crumb">New run</b></nav>
-      <div class="bar-end">
-        <div class="model" id="model-chip" title="Language model used for planning"><i></i><span id="env-model">…</span></div>
-        <button class="icon-btn theme-btn" type="button" aria-label="Switch theme"></button>
-      </div>
-    </header>
-
-    <main class="stage">
-
-      <!-- NEW RUN -->
-      <section class="screen col-narrow" data-screen="new" hidden>
-        <div class="page-head">
-          <h1 class="h1">Point it at a CSV. Tell it what to predict.</h1>
-          <p class="lede">Four agents plan the pipeline. Deterministic code trains and checks it. Every decision and fallback is logged as it happens.</p>
-        </div>
-
-        <form class="card card-pad" id="new-form" novalidate>
-          <div class="field">
-            <span class="label" id="ds-label">Dataset</span>
-            <input id="file" type="file" accept=".csv" hidden>
-            <button class="drop" id="drop" type="button" aria-labelledby="ds-label drop-t">
-              <span class="ic"><svg class="i"><use href="#i-upload"/></svg></span>
-              <strong id="drop-t">Drop a CSV here, or browse</strong>
-              <span id="drop-s">One file, with a header row</span>
-            </button>
-            <div class="cols" id="cols" hidden></div>
-          </div>
-
-          <div class="field">
-            <label class="label" for="goal-input">Prediction goal</label>
-            <textarea class="textarea" id="goal-input" placeholder="Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."></textarea>
-            <div class="suggest" id="suggest" aria-label="Add a preference">
-              <button type="button" aria-pressed="false" data-add="Keep it fast.">Fast</button>
-              <button type="button" aria-pressed="false" data-add="It should be explainable.">Explainable</button>
-              <button type="button" aria-pressed="false" data-add="Make it as accurate as possible.">As accurate as possible</button>
+        <!-- ============ Sign in / sign up ============ -->
+        <div class="auth" id="auth" hidden>
+            <div class="auth-form">
+                <div class="auth-top">
+                    <img
+                        class="logo"
+                        data-logo
+                        src="/logo.svg?theme=dark"
+                        alt="Neural Pilot"
+                    />
+                    <button
+                        class="icon-btn theme-btn"
+                        type="button"
+                        aria-label="Switch theme"
+                    ></button>
+                </div>
+                <div class="auth-card">
+                    <h1 class="h1" id="a-title">Sign in to Neural<i>Pilot</i></h1>
+                    <p class="lede" id="a-sub">
+                        Start a run or reopen your previous ones. Each account
+                        sees only its own runs.
+                    </p>
+                    <form id="a-form" novalidate>
+                        <div class="field">
+                            <label class="label" for="a-email">Email</label>
+                            <input
+                                class="input"
+                                id="a-email"
+                                type="email"
+                                autocomplete="email"
+                                placeholder="you@company.com"
+                            />
+                        </div>
+                        <div class="field">
+                            <div class="label-row">
+                                <label class="label" for="a-pw">Password</label>
+                                <span class="hint" id="a-hint" hidden
+                                    >At least 8 characters.</span
+                                >
+                            </div>
+                            <div class="pw">
+                                <input
+                                    class="input"
+                                    id="a-pw"
+                                    type="password"
+                                    autocomplete="current-password"
+                                />
+                                <button
+                                    type="button"
+                                    id="a-eye"
+                                    aria-label="Show password"
+                                >
+                                    <svg class="i"><use href="#i-eye" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div
+                            class="notice is-error"
+                            id="a-error"
+                            role="alert"
+                            hidden
+                            style="margin-bottom: 16px"
+                        >
+                            <svg class="i"><use href="#i-alert" /></svg
+                            ><span id="a-error-t"></span>
+                        </div>
+                        <button
+                            class="btn btn-primary btn-block"
+                            id="a-btn"
+                            type="submit"
+                        >
+                            Log in
+                        </button>
+                    </form>
+                    <p class="auth-switch">
+                        <span id="a-q">No account?</span>
+                        <button
+                            class="btn-text btn"
+                            type="button"
+                            id="a-toggle"
+                        >
+                            Sign up
+                        </button>
+                    </p>
+                </div>
             </div>
-            <p class="hint">Say what matters most. Sensible defaults apply to anything you leave out.</p>
-          </div>
-
-          <details class="settings">
-            <summary>Run settings <svg class="i"><use href="#i-chev"/></svg></summary>
-            <dl class="kv" id="run-settings"></dl>
-            <p class="hint">These come from the server configuration.</p>
-          </details>
-
-          <div class="notice is-error" id="new-error" role="alert" hidden><svg class="i"><use href="#i-alert"/></svg><span id="new-error-t"></span></div>
-          <div class="start-row" style="margin-top:4px">
-            <button class="btn btn-primary btn-block-sm" id="start-btn" type="submit">Start run</button>
-            <span class="small" id="budget-note">Stops by itself when the time budget runs out.</span>
-          </div>
-        </form>
-      </section>
-
-      <!-- RUN (in progress, or failed / needs input) -->
-      <section class="screen col-wide" data-screen="run" hidden>
-        <div class="page-head">
-          <div class="title-row">
-            <h1 class="h1">Run <span class="num" id="run-id">#</span></h1>
-            <span class="chip" id="run-chip"><span class="dot"></span><span id="run-chip-t">Running</span></span>
-          </div>
-          <p class="goal" id="run-goal"></p>
+            <aside class="auth-art" aria-label="How a run works">
+                <div class="route">
+                    <h2>
+                        From a CSV to a validated model, in a loop you can read.
+                    </h2>
+                    <div class="flow">
+                        <span class="token" aria-hidden="true"><i></i></span>
+                        <ol>
+                            <li>
+                                <span class="n agent"></span>
+                                <div>
+                                    <b>Understand</b>
+                                    <p>
+                                        Finds the target column and what you
+                                        care about.
+                                    </p>
+                                </div>
+                            </li>
+                            <li>
+                                <span class="n agent"></span>
+                                <div>
+                                    <b>Plan</b>
+                                    <p>
+                                        Picks one pipeline from trusted
+                                        scikit-learn, XGBoost and CatBoost
+                                        parts.
+                                    </p>
+                                </div>
+                            </li>
+                            <li>
+                                <span class="n agent"></span>
+                                <div>
+                                    <b>Verify and execute</b>
+                                    <p>
+                                        Checks the plan, then trains, tunes and
+                                        validates. The LLM never writes code.
+                                    </p>
+                                </div>
+                            </li>
+                            <li>
+                                <span class="n agent"></span>
+                                <div>
+                                    <b>Reflect and decide</b>
+                                    <p>
+                                        Accepts the result, refines it, replans
+                                        or stops.
+                                    </p>
+                                </div>
+                            </li>
+                        </ol>
+                    </div>
+                    <div class="key">
+                        <span><i class="a"></i>Agent reasons</span
+                        ><span><i class="e"></i>Engine does the work</span>
+                    </div>
+                    <p class="lede-sm">
+                        Reflection feeds back into planning until the result is
+                        accepted or the iteration limit is reached.
+                    </p>
+                </div>
+            </aside>
         </div>
 
-        <div class="run-grid">
-          <div>
-            <div class="card card-pad">
-              <div class="card-head">
-                <h2 class="h2">Agent activity</h2>
-                <div class="legend"><span><i class="a"></i>Agent</span><span><i class="e"></i>Engine</span></div>
-              </div>
-              <ol class="feed" id="feed" aria-live="polite" aria-label="Agent activity log"></ol>
-              <div class="working" id="working"><i></i><i></i><i></i><span>Working</span></div>
-              <div class="feed-foot" id="feed-foot" hidden>
-                <span class="small">Run finished. The model and report are saved.</span>
-                <button class="btn btn-primary btn-sm" type="button" id="view-report-btn">View report</button>
-              </div>
+        <!-- ============ App shell ============ -->
+        <div class="app" id="app" hidden>
+            <div class="scrim" id="scrim"></div>
+
+            <aside class="rail" id="rail" aria-label="Navigation">
+                <a
+                    class="rail-brand"
+                    href="#"
+                    id="brand-link"
+                    aria-label="Neural Pilot, new run"
+                >
+                    <img
+                        class="logo"
+                        data-logo
+                        src="/logo.svg?theme=dark"
+                        alt="Neural Pilot"
+                    />
+                </a>
+                <button class="btn btn-primary" type="button" id="new-run-btn">
+                    <svg class="i"><use href="#i-plus" /></svg>New run
+                </button>
+                <div class="rail-scroll">
+                    <p class="rail-title">
+                        <i><b>Your runs</b></i>
+                        <svg
+                            class="rail-wave"
+                            viewBox="0 0 72 16"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                            focusable="false"
+                        >
+                            <path
+                                d="M -24 8 q 6 -8 12 0 t 12 0 t 12 0 t 12 0 t 12 0 t 12 0 t 12 0 t 12 0"
+                                vector-effect="non-scaling-stroke"
+                            />
+                        </svg>
+                    </p>
+                    <div class="runs" id="runs-list"></div>
+                    <p class="hint" id="runs-empty" hidden>
+                        No runs yet. Start one from New run.
+                    </p>
+                    <div
+                        class="notice is-error"
+                        id="runs-error"
+                        role="alert"
+                        hidden
+                    >
+                        <svg class="i"><use href="#i-alert" /></svg
+                        ><span id="runs-error-t"></span>
+                    </div>
+                </div>
+                <div class="rail-foot">
+                    <span class="avatar" id="avatar" aria-hidden="true"></span>
+                    <div class="who">
+                        <b id="who-email"></b><span>Signed in</span>
+                    </div>
+                    <button
+                        class="icon-btn"
+                        type="button"
+                        id="logout-btn"
+                        aria-label="Log out"
+                        title="Log out"
+                    >
+                        <svg class="i"><use href="#i-out" /></svg>
+                    </button>
+                </div>
+            </aside>
+
+            <div class="main">
+                <header class="bar">
+                    <button
+                        class="icon-btn menu-btn"
+                        type="button"
+                        id="menu-btn"
+                        aria-label="Open runs"
+                    >
+                        <svg class="i"><use href="#i-menu" /></svg>
+                    </button>
+                    <nav class="crumb" aria-label="Breadcrumb">
+                        <span>Runs</span><span aria-hidden="true">/</span
+                        ><b id="crumb">New run</b>
+                    </nav>
+                    <div class="bar-end">
+                        <div
+                            class="model"
+                            id="model-chip"
+                            title="Language model used for planning"
+                        >
+                            <i></i><span id="env-model">…</span>
+                        </div>
+                        <button
+                            class="icon-btn theme-btn"
+                            type="button"
+                            aria-label="Switch theme"
+                        ></button>
+                    </div>
+                </header>
+
+                <main class="stage">
+                    <!-- NEW RUN -->
+                    <section class="screen col-narrow" data-screen="new" hidden>
+                        <div class="page-head">
+                            <h1 class="h1">
+                                Point it at a CSV. Tell it what to predict.
+                            </h1>
+                        </div>
+
+                        <form class="card card-pad" id="new-form" novalidate>
+                            <div class="field">
+                                <span class="label" id="ds-label">Dataset</span>
+                                <input
+                                    id="file"
+                                    type="file"
+                                    accept=".csv"
+                                    hidden
+                                />
+                                <button
+                                    class="drop"
+                                    id="drop"
+                                    type="button"
+                                    aria-labelledby="ds-label drop-t"
+                                >
+                                    <span class="ic"
+                                        ><svg class="i">
+                                            <use href="#i-upload" /></svg
+                                    ></span>
+                                    <strong id="drop-t"
+                                        >Drop a CSV here, or browse</strong
+                                    >
+                                    <span id="drop-s"
+                                        >One file, with a header row</span
+                                    >
+                                </button>
+                                <div class="cols" id="cols" hidden></div>
+                            </div>
+
+                            <div class="field">
+                                <label class="label" for="goal-input"
+                                    >Prediction goal</label
+                                >
+                                <textarea
+                                    class="textarea"
+                                    id="goal-input"
+                                    placeholder="Predict whether a customer will churn. Accuracy matters most, but I also want to understand why."
+                                ></textarea>
+                            </div>
+
+                            <div
+                                class="notice is-error"
+                                id="new-error"
+                                role="alert"
+                                hidden
+                            >
+                                <svg class="i"><use href="#i-alert" /></svg
+                                ><span id="new-error-t"></span>
+                            </div>
+                            <div class="start-row" style="margin-top: 4px">
+                                <button
+                                    class="btn btn-primary btn-block-sm"
+                                    id="start-btn"
+                                    type="submit"
+                                >
+                                    Start run
+                                </button>
+                            </div>
+                        </form>
+                    </section>
+
+                    <!-- RUN (in progress, or failed / needs input) -->
+                    <section class="screen col-wide" data-screen="run" hidden>
+                        <div class="page-head">
+                            <div class="title-row">
+                                <h1 class="h1">
+                                    Run <span class="num" id="run-id">#</span>
+                                </h1>
+                                <span class="chip" id="run-chip"
+                                    ><span class="dot"></span
+                                    ><span id="run-chip-t">Running</span></span
+                                >
+                            </div>
+                            <p class="goal" id="run-goal"></p>
+                        </div>
+
+                        <div class="run-grid">
+                            <div>
+                                <div class="card card-pad">
+                                    <div class="card-head">
+                                        <h2 class="h2">Agent activity</h2>
+                                        <div class="legend">
+                                            <span><i class="a"></i>Agent</span
+                                            ><span
+                                                ><i class="e"></i>Engine</span
+                                            >
+                                        </div>
+                                    </div>
+                                    <ol
+                                        class="feed"
+                                        id="feed"
+                                        aria-live="polite"
+                                        aria-label="Agent activity log"
+                                    ></ol>
+                                    <div class="working" id="working">
+                                        <i></i><i></i><i></i
+                                        ><span>Working</span>
+                                    </div>
+                                    <div
+                                        class="feed-foot"
+                                        id="feed-foot"
+                                        hidden
+                                    >
+                                        <span class="small"
+                                            >Run finished. The model and report
+                                            are saved.</span
+                                        >
+                                        <button
+                                            class="btn btn-primary btn-sm"
+                                            type="button"
+                                            id="view-report-btn"
+                                        >
+                                            View report
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="notice is-error"
+                                    id="run-error"
+                                    role="alert"
+                                    hidden
+                                    style="margin-top: 20px"
+                                >
+                                    <svg class="i"><use href="#i-alert" /></svg
+                                    ><span id="run-error-t"></span>
+                                </div>
+
+                                <div class="card card-pad ask" id="ask" hidden>
+                                    <h2 class="h2">
+                                        Which column should it predict?
+                                    </h2>
+                                    <p
+                                        class="lede"
+                                        style="margin-top: 6px; font-size: 15px"
+                                        id="ask-q"
+                                    ></p>
+                                    <form class="row" id="ask-form">
+                                        <label class="sr" for="ask-in"
+                                            >Target column</label
+                                        >
+                                        <input
+                                            class="input"
+                                            id="ask-in"
+                                            placeholder="Exact column name"
+                                            autocomplete="off"
+                                        />
+                                        <button
+                                            class="btn btn-primary"
+                                            type="submit"
+                                        >
+                                            Continue
+                                        </button>
+                                    </form>
+                                    <div
+                                        class="notice is-error"
+                                        id="ask-error"
+                                        role="alert"
+                                        hidden
+                                        style="margin-top: 14px"
+                                    >
+                                        <svg class="i">
+                                            <use href="#i-alert" /></svg
+                                        ><span id="ask-error-t"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <aside class="aside" aria-label="Run progress">
+                                <div class="card card-pad prog">
+                                    <div
+                                        class="card-head"
+                                        style="margin-bottom: 14px"
+                                    >
+                                        <h2 class="h2">Progress</h2>
+                                    </div>
+                                    <dl>
+                                        <div>
+                                            <dt>Iteration</dt>
+                                            <dd class="num" id="p-iter">0</dd>
+                                        </div>
+                                        <div>
+                                            <dt>State</dt>
+                                            <dd id="p-state">Running</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Best score</dt>
+                                            <dd class="num" id="p-best">-</dd>
+                                        </div>
+                                    </dl>
+                                    <hr />
+                                    <div id="path-live"></div>
+                                </div>
+                            </aside>
+                        </div>
+                    </section>
+
+                    <!-- REPORT -->
+                    <section
+                        class="screen col-wide"
+                        data-screen="report"
+                        hidden
+                    >
+                        <div class="page-head">
+                            <div class="title-row">
+                                <h1 class="h1">
+                                    Run
+                                    <span class="num" id="report-id">#</span>
+                                </h1>
+                                <span class="chip is-done" id="report-chip"
+                                    ><span class="dot"></span>Finalized</span
+                                >
+                                <div class="head-actions">
+                                    <button
+                                        class="btn btn-quiet btn-sm"
+                                        type="button"
+                                        id="json-btn"
+                                    >
+                                        <svg class="i">
+                                            <use href="#i-braces" /></svg
+                                        >Report JSON
+                                    </button>
+                                    <a
+                                        class="btn btn-primary btn-sm"
+                                        href="#"
+                                        id="download-link"
+                                        ><svg class="i">
+                                            <use href="#i-download" /></svg
+                                        >Download model</a
+                                    >
+                                </div>
+                            </div>
+                            <p class="goal" id="report-goal"></p>
+                        </div>
+
+                        <div
+                            class="notice is-warn"
+                            id="score-warning"
+                            hidden
+                            style="margin-bottom: 20px"
+                        ></div>
+                        <div
+                            class="notice is-warn"
+                            id="stop-reason"
+                            hidden
+                            style="margin-bottom: 20px"
+                        ></div>
+
+                        <div class="hero">
+                            <div class="card card-pad">
+                                <div class="card-head">
+                                    <h2 class="h2">Score by iteration</h2>
+                                    <span class="small" id="iter-used"></span>
+                                </div>
+                                <div id="path-report"></div>
+                            </div>
+                            <div class="card card-pad result">
+                                <span class="small">Winning model</span>
+                                <p class="family" id="r-family"></p>
+                                <div class="score">
+                                    <b class="num" id="r-score"></b
+                                    ><span>composite score</span>
+                                </div>
+                                <dl class="rows">
+                                    <div>
+                                        <dt id="r-holdout-label">
+                                            Holdout score
+                                        </dt>
+                                        <dd class="num">
+                                            <span id="r-holdout"></span
+                                            ><small id="r-holdout-sub"></small>
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt>Prediction speed</dt>
+                                        <dd class="num" id="r-latency"></dd>
+                                    </div>
+                                    <div>
+                                        <dt>Peak memory</dt>
+                                        <dd class="num" id="r-memory"></dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </div>
+
+                        <div
+                            class="tabs"
+                            role="tablist"
+                            aria-label="Report sections"
+                        >
+                            <button
+                                role="tab"
+                                id="t-iter"
+                                aria-controls="p-iter-tab"
+                                aria-selected="true"
+                            >
+                                Iterations
+                            </button>
+                            <button
+                                role="tab"
+                                id="t-shap"
+                                aria-controls="p-shap-tab"
+                                aria-selected="false"
+                                tabindex="-1"
+                            >
+                                Top features
+                            </button>
+                            <button
+                                role="tab"
+                                id="t-data"
+                                aria-controls="p-data-tab"
+                                aria-selected="false"
+                                tabindex="-1"
+                            >
+                                Data and plan
+                            </button>
+                            <button
+                                role="tab"
+                                id="t-notes"
+                                aria-controls="p-notes-tab"
+                                aria-selected="false"
+                                tabindex="-1"
+                            >
+                                Notes
+                            </button>
+                        </div>
+
+                        <div
+                            class="card card-pad tabpanel"
+                            role="tabpanel"
+                            id="p-iter-tab"
+                            aria-labelledby="t-iter"
+                        >
+                            <div class="tbl-wrap">
+                                <table class="tbl">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Plan</th>
+                                            <th>Weakest block</th>
+                                            <th>Score</th>
+                                            <th>Decision</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history"></tbody>
+                                </table>
+                            </div>
+                            <div
+                                class="notice"
+                                id="history-note-box"
+                                hidden
+                                style="margin-top: 16px"
+                            >
+                                <svg class="i"><use href="#i-info" /></svg
+                                ><span id="history-note"></span>
+                            </div>
+                            <p
+                                class="small"
+                                id="attempt-count"
+                                style="margin-top: 12px"
+                            ></p>
+                        </div>
+
+                        <div
+                            class="card card-pad tabpanel"
+                            role="tabpanel"
+                            id="p-shap-tab"
+                            aria-labelledby="t-shap"
+                            hidden
+                        >
+                            <div class="card-head">
+                                <h2 class="h2">What drives the prediction</h2>
+                                <span class="small"
+                                    >Mean absolute SHAP value</span
+                                >
+                            </div>
+                            <div class="shap" id="shap-list"></div>
+                            <p class="hint" id="no-shap" hidden>
+                                No SHAP summary was generated for this run.
+                            </p>
+                        </div>
+
+                        <div
+                            class="card card-pad tabpanel"
+                            role="tabpanel"
+                            id="p-data-tab"
+                            aria-labelledby="t-data"
+                            hidden
+                        >
+                            <dl class="facts" id="facts"></dl>
+                            <div
+                                class="excluded"
+                                id="excluded-note"
+                                hidden
+                            ></div>
+                        </div>
+
+                        <div
+                            class="card card-pad tabpanel notes"
+                            role="tabpanel"
+                            id="p-notes-tab"
+                            aria-labelledby="t-notes"
+                            hidden
+                        >
+                            <div id="notes-groups"></div>
+                        </div>
+                    </section>
+                </main>
             </div>
+        </div>
 
-            <div class="notice is-error" id="run-error" role="alert" hidden style="margin-top:20px"><svg class="i"><use href="#i-alert"/></svg><span id="run-error-t"></span></div>
-
-            <div class="card card-pad ask" id="ask" hidden>
-              <h2 class="h2">Which column should it predict?</h2>
-              <p class="lede" style="margin-top:6px;font-size:15px" id="ask-q"></p>
-              <form class="row" id="ask-form">
-                <label class="sr" for="ask-in">Target column</label>
-                <input class="input" id="ask-in" placeholder="Exact column name" autocomplete="off">
-                <button class="btn btn-primary" type="submit">Continue</button>
-              </form>
-              <div class="notice is-error" id="ask-error" role="alert" hidden style="margin-top:14px"><svg class="i"><use href="#i-alert"/></svg><span id="ask-error-t"></span></div>
+        <dialog id="json-dlg" aria-labelledby="json-t">
+            <div class="dh">
+                <h2 class="h2" id="json-t">Report JSON</h2>
+                <button
+                    class="icon-btn"
+                    type="button"
+                    id="json-x"
+                    aria-label="Close"
+                >
+                    <svg class="i"><use href="#i-x" /></svg>
+                </button>
             </div>
-          </div>
-
-          <aside class="aside" aria-label="Run progress">
-            <div class="card card-pad prog">
-              <div class="card-head" style="margin-bottom:14px"><h2 class="h2">Progress</h2></div>
-              <dl>
-                <div><dt>Iteration</dt><dd class="num" id="p-iter">0</dd></div>
-                <div><dt>State</dt><dd id="p-state">Running</dd></div>
-                <div><dt>Best score</dt><dd class="num" id="p-best">-</dd></div>
-                <div><dt>Time budget</dt><dd class="num" id="p-budget">-</dd></div>
-              </dl>
-              <hr>
-              <div id="path-live"></div>
+            <pre id="json-pre"></pre>
+            <div class="df">
+                <button
+                    class="btn btn-quiet btn-sm"
+                    type="button"
+                    id="json-copy"
+                >
+                    Copy</button
+                ><button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    id="json-done"
+                >
+                    Close
+                </button>
             </div>
-          </aside>
-        </div>
-      </section>
+        </dialog>
 
-      <!-- REPORT -->
-      <section class="screen col-wide" data-screen="report" hidden>
-        <div class="page-head">
-          <div class="title-row">
-            <h1 class="h1">Run <span class="num" id="report-id">#</span></h1>
-            <span class="chip is-done" id="report-chip"><span class="dot"></span>Finalized</span>
-            <div class="head-actions">
-              <button class="btn btn-quiet btn-sm" type="button" id="json-btn"><svg class="i"><use href="#i-braces"/></svg>Report JSON</button>
-              <a class="btn btn-primary btn-sm" href="#" id="download-link"><svg class="i"><use href="#i-download"/></svg>Download model</a>
-            </div>
-          </div>
-          <p class="goal" id="report-goal"></p>
-        </div>
-
-        <div class="notice is-warn" id="score-warning" hidden style="margin-bottom:20px"></div>
-        <div class="notice is-warn" id="stop-reason" hidden style="margin-bottom:20px"></div>
-
-        <div class="hero">
-          <div class="card card-pad">
-            <div class="card-head"><h2 class="h2">Score by iteration</h2><span class="small" id="iter-used"></span></div>
-            <div id="path-report"></div>
-          </div>
-          <div class="card card-pad result">
-            <span class="small">Winning model</span>
-            <p class="family" id="r-family"></p>
-            <div class="score"><b class="num" id="r-score"></b><span>composite score</span></div>
-            <dl class="rows">
-              <div><dt id="r-holdout-label">Holdout score</dt><dd class="num"><span id="r-holdout"></span><small id="r-holdout-sub"></small></dd></div>
-              <div><dt>Prediction speed</dt><dd class="num" id="r-latency"></dd></div>
-              <div><dt>Peak memory</dt><dd class="num" id="r-memory"></dd></div>
-            </dl>
-          </div>
-        </div>
-
-        <div class="tabs" role="tablist" aria-label="Report sections">
-          <button role="tab" id="t-iter" aria-controls="p-iter-tab" aria-selected="true">Iterations</button>
-          <button role="tab" id="t-shap" aria-controls="p-shap-tab" aria-selected="false" tabindex="-1">Top features</button>
-          <button role="tab" id="t-data" aria-controls="p-data-tab" aria-selected="false" tabindex="-1">Data and plan</button>
-          <button role="tab" id="t-notes" aria-controls="p-notes-tab" aria-selected="false" tabindex="-1">Notes</button>
-        </div>
-
-        <div class="card card-pad tabpanel" role="tabpanel" id="p-iter-tab" aria-labelledby="t-iter">
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead><tr><th>#</th><th>Plan</th><th>Weakest block</th><th>Score</th><th>Decision</th></tr></thead>
-              <tbody id="history"></tbody>
-            </table>
-          </div>
-          <div class="notice" id="history-note-box" hidden style="margin-top:16px"><svg class="i"><use href="#i-info"/></svg><span id="history-note"></span></div>
-          <p class="small" id="attempt-count" style="margin-top:12px"></p>
-        </div>
-
-        <div class="card card-pad tabpanel" role="tabpanel" id="p-shap-tab" aria-labelledby="t-shap" hidden>
-          <div class="card-head"><h2 class="h2">What drives the prediction</h2><span class="small">Mean absolute SHAP value</span></div>
-          <div class="shap" id="shap-list"></div>
-          <p class="hint" id="no-shap" hidden>No SHAP summary was generated for this run.</p>
-        </div>
-
-        <div class="card card-pad tabpanel" role="tabpanel" id="p-data-tab" aria-labelledby="t-data" hidden>
-          <dl class="facts" id="facts"></dl>
-          <div class="excluded" id="excluded-note" hidden></div>
-        </div>
-
-        <div class="card card-pad tabpanel notes" role="tabpanel" id="p-notes-tab" aria-labelledby="t-notes" hidden>
-          <div id="notes-groups"></div>
-        </div>
-      </section>
-    </main>
-  </div>
-</div>
-
-<dialog id="json-dlg" aria-labelledby="json-t">
-  <div class="dh"><h2 class="h2" id="json-t">Report JSON</h2><button class="icon-btn" type="button" id="json-x" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
-  <pre id="json-pre"></pre>
-  <div class="df"><button class="btn btn-quiet btn-sm" type="button" id="json-copy">Copy</button><button class="btn btn-primary btn-sm" type="button" id="json-done">Close</button></div>
-</dialog>
-
-<script type="module" src="/static/js/app.js"></script>
-</body>
+        <script type="module" src="/static/js/app.js"></script>
+    </body>
 </html>

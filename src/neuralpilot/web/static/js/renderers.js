@@ -1,6 +1,6 @@
 import { pathChart } from './chart.js';
 import { $, escapeHtml } from './dom.js';
-import { formatMessage, seconds } from './format.js';
+import { formatMessage } from './format.js';
 import { renderReport } from './report.js';
 import { state } from './state.js';
 
@@ -30,18 +30,6 @@ export function renderConfig(cfg) {
   state.config = cfg;
   $('env-model').textContent = cfg.llm_model || cfg.llm_source || 'not configured';
   $('model-chip').title = `source: ${cfg.llm_source}${cfg.llm_key_configured ? '' : ' (no API key configured)'}`;
-
-  const holdout = Math.round((cfg.holdout_fraction ?? 0.2) * 100);
-  $('run-settings').innerHTML = [
-    ['Train / holdout', `${100 - holdout} / ${holdout}`],
-    ['Cross-validation', `${cfg.cv_folds}-fold`],
-    ['Seed', cfg.seed],
-    ['Time budget', seconds(cfg.run_budget_s)],
-    ['Max iterations', cfg.max_iterations],
-  ]
-    .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd class="num">${escapeHtml(value)}</dd></div>`)
-    .join('');
-  $('budget-note').textContent = `Stops by itself after ${seconds(cfg.run_budget_s)}.`;
 }
 
 /** Append activity lines the timeline has not shown yet. */
@@ -51,7 +39,7 @@ export function renderActivity(data) {
 
   activity.slice(state.seenActivity).forEach((item) => {
     const line = document.createElement('li');
-    line.className = `ev ${isEngineStep(item.tag) ? 'is-engine' : 'is-agent'}`;
+    line.className = `ev ev-enter ${isEngineStep(item.tag) ? 'is-engine' : 'is-agent'}`;
     line.innerHTML =
       `<span class="ev-time num">${escapeHtml(item.time)}</span>` +
       '<span class="ev-node"></span>' +
@@ -77,7 +65,6 @@ export function renderRun(data) {
   const max = data.max_iterations;
   $('p-iter').textContent = running ? `${Math.min(data.iteration + 1, max)} of ${max}` : `${data.iteration} of ${max}`;
   $('p-state').textContent = chipText;
-  $('p-budget').textContent = state.config ? seconds(state.config.run_budget_s) : '-';
 
   const scores = (data.iteration_logs || []).map((log) => Number(log.composite_score));
   $('p-best').textContent = scores.length ? Math.max(...scores).toFixed(3) : '-';

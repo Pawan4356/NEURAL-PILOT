@@ -1,4 +1,6 @@
 import { $, hide, show } from './dom.js';
+import { paintAvatar } from './avatar.js';
+import { startRouteLoop, stopRouteLoop } from './route-loop.js';
 
 // The app shell (rail + main column) and the sign-in page are never shown together.
 // Visibility here is UI only: the server enforces access to every run.
@@ -6,13 +8,15 @@ import { $, hide, show } from './dom.js';
 export function showAuth() {
   hide('app');
   show('auth');
+  startRouteLoop(); // after the show: the token's position is measured, not assumed
 }
 
 export function showApp(email) {
   $('who-email').textContent = email;
-  $('avatar').textContent = email.charAt(0);
+  paintAvatar($('avatar'), email);
   hide('auth');
   show('app');
+  stopRouteLoop();
   showScreen('new');
 }
 

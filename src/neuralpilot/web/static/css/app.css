@@ -23,7 +23,11 @@
   --stop-bg:#FBE7EA;
   --on-blue:#FFFFFF;
   --shadow:0 1px 2px rgba(18,23,38,.05), 0 8px 24px -12px rgba(18,23,38,.10);
-  --r-card:16px; --r-field:10px; --r-tag:6px;
+  --r-card:16px; --r-btn:10px; --r-field:10px; --r-tag:6px;
+  /* One motion scale for the whole UI: short durations and a single ease-out
+     curve, so hovers and screen changes feel immediate rather than animated. */
+  --t-fast:.12s; --t-base:.16s; --t-slow:.22s;
+  --ease:cubic-bezier(.22,.7,.26,1);
   --f-head:'Bricolage Grotesque','Hanken Grotesk',system-ui,sans-serif;
   --f-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
   --f-code:'JetBrains Mono',ui-monospace,Menlo,monospace;
@@ -54,12 +58,17 @@
 }
 
 *{box-sizing:border-box}
+
+/* Scrolling stays, scrollbars are hidden everywhere. */
+*{scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{width:0;height:0;display:none}
+
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0; background:var(--paper); color:var(--ink);
   font:400 15px/1.55 var(--f-body);
   -webkit-font-smoothing:antialiased;
-  transition:background-color .2s, color .2s;
+  transition:background-color var(--t-base) var(--ease), color var(--t-base) var(--ease);
 }
 h1,h2,h3,p,ul,ol,dl,dd,figure{margin:0}
 ul,ol{padding:0;list-style:none}
@@ -86,9 +95,9 @@ code,.code{font-family:var(--f-code);font-size:.88em}
    ------------------------------------------------------------------ */
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  height:44px;padding:0 20px;border-radius:999px;border:1px solid transparent;
+  height:44px;padding:0 20px;border-radius:var(--r-btn);border:1px solid transparent;
   font-weight:600;font-size:15px;text-decoration:none;white-space:nowrap;
-  transition:background-color .15s,border-color .15s,transform .1s;
+  transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),transform .08s var(--ease);
 }
 .btn:active{transform:translateY(1px)}
 .btn-primary{background:var(--blue);color:var(--on-blue)}
@@ -98,13 +107,14 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .btn-quiet:hover{background:var(--sunk)}
 .btn-text{background:none;border:0;height:auto;padding:4px 2px;color:var(--blue-text);font-weight:600}
 .btn-text:hover{text-decoration:underline}
-.btn-sm{height:36px;padding:0 14px;font-size:14px}
+.btn-sm{height:36px;padding:0 14px;font-size:14px;border-radius:9px}
 .btn-block{width:100%}
 
 .field{margin-bottom:20px}
 .input,.textarea{
   width:100%;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-field);
-  padding:11px 14px;line-height:1.4;transition:border-color .15s, box-shadow .15s, background-color .15s;
+  padding:11px 14px;line-height:1.4;
+  transition:border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
 .input{height:46px}
 .textarea{resize:vertical;min-height:112px}
@@ -113,7 +123,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .input:focus,.textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 25%,transparent);background:var(--surface)}
 .pw{position:relative}
 .pw .input{padding-right:48px}
-.pw button{position:absolute;right:4px;top:4px;width:38px;height:38px;border:0;background:none;border-radius:8px;color:var(--ink-3);display:grid;place-items:center}
+.pw button{position:absolute;right:4px;top:4px;width:38px;height:38px;border:0;background:none;border-radius:8px;color:var(--ink-3);display:grid;place-items:center;transition:color var(--t-fast) var(--ease),background-color var(--t-fast) var(--ease)}
 .pw button:hover{color:var(--ink);background:var(--sunk)}
 .hint{font-size:13px;color:var(--ink-3);margin-top:8px}
 /* Label on the left, its hint pinned to the right on the same line. */
@@ -121,10 +131,10 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .label-row .label{margin:0}
 .label-row .hint{margin:0;text-align:right}
 
-.chip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:999px;background:var(--sunk);font-size:13px;font-weight:500;color:var(--ink-2)}
+.chip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:8px;background:var(--sunk);font-size:13px;font-weight:500;color:var(--ink-2)}
 .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
 .chip.is-running{background:var(--sky);color:var(--blue-text)}
-.chip.is-running .dot{background:var(--blue);animation:pulse 1.4s ease-in-out infinite}
+.chip.is-running .dot{background:var(--blue);animation:pulse 1.1s ease-in-out infinite}
 .chip.is-wait{background:var(--warn-bg);color:var(--warn)}
 .chip.is-wait .dot{background:var(--warn)}
 .chip.is-done{background:var(--go-bg);color:var(--go)}
@@ -134,7 +144,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
 
 .suggest{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-.suggest button{height:30px;padding:0 12px;border-radius:999px;border:1px dashed var(--line);background:none;font-size:13px;color:var(--ink-2);transition:all .15s}
+.suggest button{height:30px;padding:0 12px;border-radius:8px;border:1px dashed var(--line);background:none;font-size:13px;color:var(--ink-2);transition:all var(--t-fast) var(--ease)}
 .suggest button:hover{border-color:var(--blue);color:var(--blue-text)}
 .suggest button[aria-pressed="true"]{border-style:solid;border-color:var(--blue);background:var(--sky);color:var(--blue-text)}
 
@@ -145,7 +155,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .notice.is-warn{background:var(--warn-bg)}
 .notice.is-warn svg{color:var(--warn)}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow);transition:background-color .2s,border-color .2s}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow);transition:background-color var(--t-base) var(--ease),border-color var(--t-base) var(--ease)}
 .card-pad{padding:24px}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 
@@ -161,33 +171,87 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .rail{
   position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:20px;
   padding:22px 14px 14px;border-right:1px solid var(--line);background:var(--surface);
-  transition:background-color .2s,border-color .2s;
+  transition:background-color var(--t-base) var(--ease),border-color var(--t-base) var(--ease);
 }
 .rail-brand{padding:0 8px;display:flex}
 .rail .btn{margin:0 4px}
 .rail-scroll{flex:1;min-height:0;overflow:auto;margin:0 -6px;padding:0 6px}
-.rail-title{font-size:13px;font-weight:600;color:var(--ink-3);padding:0 10px 8px}
+/* Sized to its own text so the wave underneath can span exactly that width. */
+.rail-title{position:relative;width:max-content;max-width:calc(100% - 20px);font-size:13px;font-weight:600;color:var(--ink-3);padding:0 10px 20px}
+/* Same 10px inset as the heading and the run rows, so the empty state lines up. */
+.rail-scroll .hint{padding:0 10px}
 .runs{display:grid;gap:2px}
 .run-item{
   display:grid;grid-template-columns:10px 1fr auto;gap:2px 12px;align-items:center;width:100%;text-align:left;
   padding:10px;border:0;border-radius:10px;background:none;
+  transition:background-color var(--t-fast) var(--ease);
 }
 .run-item:hover{background:var(--sunk)}
 .run-item[aria-current="true"]{background:var(--sky)}
 .run-item .st{width:8px;height:8px;border-radius:50%;background:var(--go);grid-row:1/3;align-self:start;margin-top:7px}
-.run-item .st.is-running{background:var(--blue);animation:pulse 1.4s ease-in-out infinite}
+.run-item .st.is-running{background:var(--blue);animation:pulse 1.1s ease-in-out infinite}
 .run-item .st.is-fail{background:var(--stop)}
 .run-item .st.is-wait{background:var(--warn)}
 .run-item .st.is-muted{background:var(--ink-3)}
 .run-item .t{font-weight:600;font-size:14px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .run-item .s{font-size:12.5px;color:var(--ink-3);grid-column:2;line-height:1.3}
 .run-item .sc{grid-row:1/3;grid-column:3;font-weight:600;font-size:13px;color:var(--ink-2)}
+/* Flow line underlining the "Your runs" heading, as wide as that text. Out of
+   flow, so it never widens the heading. The path is drawn past both edges and
+   travels exactly one wave period (24 units), so the loop has no visible seam. */
+.rail-wave{
+    position:absolute;left:10px;right:10px;bottom:2.5px;display:block;height:12px;color:var(--blue);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+}
+.rail-wave path{
+  fill:none;stroke:color-mix(in srgb,currentColor 55%,transparent);
+  stroke-width:1.6;stroke-linecap:round;animation:wave 1.1s linear infinite;
+}
+@keyframes wave{to{transform:translateX(24px)}}
+
 .rail-foot{display:flex;align-items:center;gap:10px;padding:12px 8px 2px;border-top:1px solid var(--line-soft)}
-.avatar{width:32px;height:32px;border-radius:50%;background:var(--sky);color:var(--blue-text);display:grid;place-items:center;font-weight:700;font-size:13px;flex:none;text-transform:uppercase}
+/* The initial's letter picks --av-h (see js/avatar.js); two gradient layers
+   drift over each other at different speeds so the fill moves like cloud. */
+.avatar{
+  --av-h:220;
+  width:32px;height:32px;border-radius:50%;flex:none;
+  display:grid;place-items:center;font-weight:700;font-size:13px;text-transform:uppercase;
+  position:relative;isolation:isolate;overflow:hidden;
+  background:hsl(var(--av-h) 68% 42%);color:#fff;
+}
+/* The letter is a quiet marker; the moving gradient is what you look at. */
+.avatar>span{
+  position:relative;z-index:1;font-weight:800;font-style:italic;
+  color:hsl(var(--av-h) 90% 96% / .72);
+  text-shadow:0 1px 2px hsl(var(--av-h) 80% 14% / .35);
+}
+.avatar::before,.avatar::after{
+  content:'';position:absolute;z-index:-1;inset:-75%;
+  animation:cloud-drift 18s var(--ease) infinite alternate;
+}
+.avatar::before{
+  background:
+    radial-gradient(55% 55% at 28% 30%, hsl(var(--av-h) 100% 72%) 0, transparent 78%),
+    radial-gradient(60% 60% at 74% 70%, hsl(calc(var(--av-h) + 34) 95% 30%) 0, transparent 80%);
+}
+.avatar::after{
+  background:
+    radial-gradient(52% 52% at 72% 24%, hsl(calc(var(--av-h) - 40) 100% 62%) 0, transparent 76%),
+    radial-gradient(58% 58% at 24% 78%, hsl(calc(var(--av-h) + 72) 92% 44%) 0, transparent 78%);
+  animation-duration:27s;animation-direction:alternate-reverse}
+@keyframes cloud-drift{
+  0%{transform:translate3d(-14%,-10%,0) rotate(0deg) scale(1)}
+  50%{transform:translate3d(12%,9%,0) rotate(140deg) scale(1.28)}
+  100%{transform:translate3d(-9%,14%,0) rotate(280deg) scale(1.04)}
+}
+@media (prefers-reduced-motion:reduce){
+  .avatar::before,.avatar::after{animation:none}
+}
 .who{min-width:0;flex:1;font-size:13px;line-height:1.3}
 .who b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who span{color:var(--ink-3)}
-.icon-btn{width:36px;height:36px;border-radius:10px;border:0;background:none;color:var(--ink-2);display:grid;place-items:center;flex:none}
+.icon-btn{width:36px;height:36px;border-radius:10px;border:0;background:none;color:var(--ink-2);display:grid;place-items:center;flex:none;transition:background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .icon-btn:hover{background:var(--sunk);color:var(--ink)}
 
 .main{min-width:0;display:flex;flex-direction:column}
@@ -195,7 +259,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .crumb{font-size:14px;color:var(--ink-3);display:flex;gap:8px;align-items:center;min-width:0}
 .crumb b{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar-end{margin-left:auto;display:flex;align-items:center;gap:8px}
-.model{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--ink-2);max-width:min(300px,42vw)}
+.model{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--ink-2);max-width:min(300px,42vw)}
 .model i{width:7px;height:7px;border-radius:50%;background:var(--go);flex:none}
 .model span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .menu-btn{display:none}
@@ -220,12 +284,70 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .auth-art{margin:14px;border-radius:24px;background:var(--sky);padding:clamp(32px,5vw,72px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
 .route{max-width:430px;position:relative;z-index:1}
 .route h2{margin-bottom:28px;font:650 24px/1.2 var(--f-head);letter-spacing:-.02em;text-wrap:balance}
+.route .flow{position:relative}
 .route ol{position:relative;display:grid;gap:22px}
 .route ol::before{content:"";position:absolute;left:8.5px;top:12px;bottom:12px;width:1.5px;background:color-mix(in srgb,var(--blue) 35%,transparent)}
 .route li{display:grid;grid-template-columns:18px 1fr;gap:16px;position:relative}
-.route .n{width:18px;height:18px;margin-top:3px;background:var(--sky);position:relative;z-index:1}
-.route .n.agent{border:2px solid var(--blue);border-radius:50%}
-.route .n.engine{background:var(--ink);border-radius:4px;width:14px;height:14px;margin:5px 2px}
+.route .n{width:18px;height:18px;margin-top:3px;background:var(--sky);position:relative;z-index:1;transform-origin:50% 50%}
+.route .n.agent{border:2px solid var(--blue);border-radius:50%;transition:border-radius 220ms var(--ease)}
+/* Resting, the outline squares off and the travelling token hands its square
+   over to this pseudo-element. Being a child of the outline, it is carried by
+   the very same transform, so the jiggle moves both as one body and no gap can
+   open between them. `inset:0` resolves to the padding box — the 18px marker's
+   inner 14px — which is exactly where the token sits, so the swap is invisible.
+   Gaining the class is instant (transition:none); losing it rounds off over the
+   base rule's 220ms as the token sets off again. */
+.route .n.agent.is-active{border-radius:5px;transition:none}
+.route .n.agent.is-active::after{content:"";position:absolute;inset:0;background:var(--ink);border-radius:4px}
+
+/* The token walks the steps: route-loop.js measures each marker and sets
+   --token-y, so the rows stay free to be sized by their own text. Travel is a
+   transition on the wrapper; the squeeze and the landing jiggle are keyframes
+   on the inner square, which keeps them from fighting over one transform.
+   The durations here must match the constants in route-loop.js. */
+.route .flow{--token-travel:520ms; --token-jiggle:560ms}
+/* Shown only in transit; at rest the marker's ::after stands in for it. The
+   handover is a plain opacity swap with no transition, so the two never both
+   show and never both hide. */
+.route .token{
+  position:absolute;left:2px;top:0;width:14px;height:14px;z-index:2;opacity:0;
+  transform:translateY(var(--token-y,0px));
+  /* Leaves gently and arrives at speed. An ease-out curve ends at zero
+     velocity, which parks the square for an instant before the jiggle; here the
+     momentum runs straight into the impact instead. */
+  transition:transform var(--token-travel) cubic-bezier(.5,.06,.78,.44);
+  will-change:transform;
+}
+.route .flow.is-travelling .token{opacity:1}
+.route .token i{display:block;width:100%;height:100%;background:var(--ink);border-radius:4px;transform-origin:50% 50%}
+.route .flow.is-travelling .token i{animation:token-squeeze var(--token-travel) cubic-bezier(.45,0,.55,1)}
+/* One element jiggles, carrying its inner square with it. */
+.route .flow.is-landing .n.is-active{animation:token-jiggle var(--token-jiggle) cubic-bezier(.3,1.3,.5,1)}
+/* The first placement is a jump, not a journey. */
+.route .flow.is-placing .token{transition:none}
+
+/* Drawn thin and tall, the way a bead slips along a wire. The stretch tracks
+   the speed, so it peaks at arrival rather than relaxing beforehand — the flat
+   squash that opens the jiggle then reads as the impact absorbing it. */
+@keyframes token-squeeze{
+  0%{transform:scale(1,1)}
+  18%{transform:scale(.8,1.18)}
+  100%{transform:scale(.6,1.46)}
+}
+/* Lands flat, then shakes it off. */
+@keyframes token-jiggle{
+  0%{transform:scale(1.3,.7)}
+  18%{transform:scale(.84,1.2) rotate(3.5deg)}
+  36%{transform:scale(1.14,.9) rotate(-2.6deg)}
+  54%{transform:scale(.94,1.07) rotate(1.8deg)}
+  70%{transform:scale(1.05,.97) rotate(-1.1deg)}
+  84%{transform:scale(.98,1.02) rotate(.5deg)}
+  100%{transform:scale(1,1) rotate(0)}
+}
+@media (prefers-reduced-motion:reduce){
+  .route .token{transition:none}
+  .route .token i,.route .n.agent.is-active{animation:none}
+}
 .route b{display:block;font-weight:650}
 .route p{font-size:14px;color:var(--ink-2);max-width:40ch}
 .route .key{margin-top:30px;padding-top:18px;border-top:1px solid color-mix(in srgb,var(--blue) 25%,transparent);display:flex;gap:20px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
@@ -241,7 +363,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .drop{
   display:grid;grid-template-columns:44px 1fr;gap:4px 16px;align-items:center;width:100%;text-align:left;
   padding:18px 20px;border:1.5px dashed var(--line);border-radius:14px;background:var(--paper);
-  transition:border-color .15s,background-color .15s;
+  transition:border-color var(--t-fast) var(--ease),background-color var(--t-fast) var(--ease);
 }
 .drop:hover,.drop.is-over{border-color:var(--blue);background:var(--sky)}
 .drop .ic{grid-row:1/3;width:44px;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;color:var(--blue-text)}
@@ -252,15 +374,6 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .cols{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .cols code{padding:3px 8px;border-radius:var(--r-tag);background:var(--sunk);color:var(--ink-2);font-size:12px}
 .cols .more{background:none;color:var(--ink-3)}
-.settings{margin:4px 0 24px;border-top:1px solid var(--line-soft);padding-top:16px}
-.settings summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:14px;padding:2px 0}
-.settings summary::-webkit-details-marker{display:none}
-.settings summary svg{transition:transform .2s;color:var(--ink-3)}
-.settings[open] summary svg{transform:rotate(180deg)}
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-top:14px}
-.kv div{padding:10px 12px;border-radius:10px;background:var(--paper)}
-.kv dt{font-size:12.5px;color:var(--ink-3)}
-.kv dd{font-weight:600;margin-top:1px}
 .start-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 
 /* ------------------------------------------------------------------
@@ -287,11 +400,11 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .ev-name{font-weight:650;font-size:14px;display:block}
 .ev-body p{color:var(--ink-2);font-size:14.5px;max-width:68ch;text-wrap:pretty}
 .ev-body p b{color:var(--ink);font-weight:650}
-.ev-enter{animation:slide-in .35s ease-out both}
-@keyframes slide-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.ev-enter{animation:slide-in .2s var(--ease) both}
+@keyframes slide-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .working{display:flex;gap:10px;align-items:center;padding:6px 0 4px 48px;font-size:14px;color:var(--ink-3)}
-.working i{width:5px;height:5px;border-radius:50%;background:var(--blue);animation:pulse 1.2s infinite}
-.working i:nth-child(2){animation-delay:.15s}.working i:nth-child(3){animation-delay:.3s}
+.working i{width:5px;height:5px;border-radius:50%;background:var(--blue);animation:pulse .9s infinite}
+.working i:nth-child(2){animation-delay:.12s}.working i:nth-child(3){animation-delay:.24s}
 .feed-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:16px;margin-top:6px;border-top:1px solid var(--line-soft)}
 
 .prog dl{display:grid;gap:12px}
@@ -316,11 +429,11 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .path .ghost{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 3}
 .path .val{fill:var(--ink-2);font-weight:600}
 .path .val.best{fill:var(--blue-text);font-size:13px}
-.path .live{fill:none;stroke:var(--blue);stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:ring 1.6s ease-out infinite}
+.path .live{fill:none;stroke:var(--blue);stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:ring 1.2s ease-out infinite}
 @keyframes ring{from{opacity:.8;transform:scale(1)}to{opacity:0;transform:scale(2.4)}}
-.path.draw .line{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.1s .15s cubic-bezier(.3,.7,.2,1) forwards}
+.path.draw .line{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .6s .04s var(--ease) forwards}
 @keyframes draw{to{stroke-dashoffset:0}}
-.path.draw .pt,.path.draw .val{opacity:0;animation:fade .35s ease-out forwards}
+.path.draw .pt,.path.draw .val{opacity:0;animation:fade .2s var(--ease) forwards}
 @keyframes fade{to{opacity:1}}
 
 /* ------------------------------------------------------------------
@@ -339,8 +452,8 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .rows dd{font-weight:600;text-align:right}
 .rows dd small{display:block;font-weight:400;color:var(--ink-3);font-size:12.5px}
 
-.tabs{display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--sunk);width:max-content;max-width:100%;overflow:auto;margin-bottom:16px}
-.tabs button{height:36px;padding:0 16px;border:0;border-radius:999px;background:none;font-weight:600;font-size:14px;color:var(--ink-2);white-space:nowrap}
+.tabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--sunk);width:max-content;max-width:100%;overflow:auto;margin-bottom:16px}
+.tabs button{height:36px;padding:0 16px;border:0;border-radius:8px;background:none;font-weight:600;font-size:14px;color:var(--ink-2);white-space:nowrap;transition:background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .tabs button:hover{color:var(--ink)}
 .tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(18,23,38,.12)}
 .tabpanel[hidden]{display:none}
@@ -366,7 +479,7 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .shap-row{display:grid;grid-template-columns:minmax(120px,190px) 1fr 52px;gap:14px;align-items:center;font-size:14.5px}
 .shap-row .nm{font-family:var(--f-code);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shap-row .tr{height:10px;border-radius:99px;background:var(--sunk);overflow:hidden}
-.shap-row .tr i{display:block;height:100%;border-radius:99px;background:var(--blue);transform-origin:left;animation:grow .7s cubic-bezier(.3,.7,.2,1) both}
+.shap-row .tr i{display:block;height:100%;border-radius:99px;background:var(--blue);transform-origin:left;animation:grow .42s var(--ease) both}
 .shap-row .v{text-align:right;font-weight:600;color:var(--ink-2)}
 @keyframes grow{from{transform:scaleX(0)}}
 
@@ -408,7 +521,7 @@ dialog .df{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;bord
 }
 @media (max-width:900px){
   .app{grid-template-columns:minmax(0,1fr)}
-  .rail{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);z-index:40;transform:translateX(-102%);transition:transform .25s}
+  .rail{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);z-index:40;transform:translateX(-102%);transition:transform var(--t-slow) var(--ease)}
   .app.rail-open .rail{transform:none;box-shadow:0 0 60px rgba(0,0,0,.35)}
   .app.rail-open .scrim{display:block;position:fixed;inset:0;background:rgba(10,14,24,.45);z-index:30}
   .menu-btn{display:grid}

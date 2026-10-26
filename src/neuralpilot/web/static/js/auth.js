@@ -37,7 +37,9 @@ function enter(email) {
 function setMode(next) {
   mode = next;
   const signingUp = mode === 'signup';
-  $('a-title').textContent = signingUp ? 'Create your account' : 'Sign in to Neural Pilot';
+  // innerHTML, not textContent: the wordmark carries an <i> that textContent
+  // would strip. Both strings are literals here — nothing user-supplied.
+  $('a-title').innerHTML = signingUp ? 'Create your account' : 'Sign in to Neural<i>Pilot</i>';
   $('a-sub').textContent = signingUp
     ? 'Runs are private to your account, so you can come back to them any time.'
     : 'Start a run or reopen your previous ones. Each account sees only its own runs.';

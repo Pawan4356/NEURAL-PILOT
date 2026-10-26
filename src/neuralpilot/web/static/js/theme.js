@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'neuralpilot-theme';
-const REVEAL_MS = 550;
+const REVEAL_MS = 380;
+const REVEAL_EASE = 'cubic-bezier(.22,.7,.26,1)';
 
 function iconFor(mode) {
   // The button shows the mode it switches *to*.
@@ -46,7 +47,7 @@ function revealFromButton(event, mode) {
       },
       {
         duration: REVEAL_MS,
-        easing: 'ease-in-out',
+        easing: REVEAL_EASE,
         pseudoElement: '::view-transition-new(root)',
       },
     );
