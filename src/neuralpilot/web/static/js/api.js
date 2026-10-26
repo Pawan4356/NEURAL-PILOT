@@ -1,9 +1,49 @@
+// A 401 means the session is missing or expired. Announce it once so the page
+// can show the sign-in form, and still throw so the caller can show its own message.
+export const SIGNED_OUT_EVENT = 'np:signed-out';
+
 async function parseJsonResponse(response, fallbackMessage) {
   const data = await response.json();
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  }
   if (!response.ok) {
     throw Error(data.detail || fallbackMessage);
   }
   return data;
+}
+
+function formOf(fields) {
+  const body = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    body.append(key, value);
+  }
+  return body;
+}
+
+export async function getSession() {
+  const response = await fetch('/api/auth/me');
+  return parseJsonResponse(response, 'Not signed in');
+}
+
+export async function logIn(email, password) {
+  const response = await fetch('/api/auth/login', { method: 'POST', body: formOf({ email, password }) });
+  return parseJsonResponse(response, 'Could not log in');
+}
+
+export async function signUp(email, password) {
+  const response = await fetch('/api/auth/signup', { method: 'POST', body: formOf({ email, password }) });
+  return parseJsonResponse(response, 'Could not create account');
+}
+
+export async function logOut() {
+  const response = await fetch('/api/auth/logout', { method: 'POST' });
+  return parseJsonResponse(response, 'Could not log out');
+}
+
+export async function listRuns() {
+  const response = await fetch('/api/runs');
+  return parseJsonResponse(response, 'Could not load your runs');
 }
 
 export async function createRun(file, goal) {

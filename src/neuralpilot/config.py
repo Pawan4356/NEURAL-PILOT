@@ -20,6 +20,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 RUNS_DIR = PROJECT_ROOT / "runs"
 DB_PATH = RUNS_DIR / "experiments.sqlite3"
+# Users, sessions and run ownership. Kept apart from the experiment store so
+# that guidance (which reads every finished run) never touches personal data.
+ACCOUNTS_DB_PATH = RUNS_DIR / "accounts.sqlite3"
+SESSION_TTL_S = 7 * 24 * 3600
+SESSION_COOKIE_SECURE = os.environ.get("NEURALPILOT_COOKIE_SECURE", "0") == "1"
 DOTENV_PATH = PROJECT_ROOT / ".env"
 
 

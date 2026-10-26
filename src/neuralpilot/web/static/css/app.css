@@ -56,7 +56,6 @@ body {
 .topbar,
 .brand-group,
 .top-actions,
-.theme-toggle,
 .panel-head,
 .results-head,
 .status-row {
@@ -115,34 +114,56 @@ td {
   gap: 14px;
 }
 
-.theme-toggle {
-  gap: 2px;
-  padding: 3px;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-}
-
-.theme-toggle button,
+.theme-btn,
 .btn {
   font-family: 'DM Sans', sans-serif;
   cursor: pointer;
 }
 
-.theme-toggle button {
-  border: 0;
-  background: transparent;
-  color: var(--dim);
-  font-size: 12px;
-  padding: 5px 11px;
-  border-radius: 16px;
-  font-weight: 500;
+.theme-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2);
+  color: var(--text);
 }
 
-.theme-toggle button.active {
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: var(--shadow);
+.theme-btn:hover {
+  border-color: var(--dim);
+}
+
+.theme-btn svg {
+  grid-area: 1 / 1;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-btn .icon-sun {
+  display: none;
+}
+
+html[data-theme=light] .theme-btn .icon-moon {
+  display: none;
+}
+
+html[data-theme=light] .theme-btn .icon-sun {
+  display: block;
+}
+
+/* Circular reveal from the toggle: only the new snapshot is animated (see theme.js). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 .page {
@@ -232,7 +253,9 @@ label {
 }
 
 textarea,
-input[type=text] {
+input[type=text],
+input[type=email],
+input[type=password] {
   width: 100%;
   background: var(--panel2);
   border: 1px solid var(--line);
@@ -790,4 +813,77 @@ tr.is-best td {
   .final-actions {
     flex-direction: column;
   }
+}
+
+/* Sign-in and "your previous runs" */
+.session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.session-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.run-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.run-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font: 14px 'DM Sans', sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-row:last-child {
+  border-bottom: none;
+}
+
+.run-row:hover .run-main {
+  color: var(--blue);
+}
+
+.run-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.run-goal,
+.run-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-goal {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.run-meta {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.auth-switch {
+  margin-top: 14px;
 }

@@ -92,7 +92,7 @@ export function renderRun(data) {
     show('clarify-card');
   }
 
-  if (data.status === 'failed') {
+  if (data.status === 'failed' || data.status === 'interrupted') {
     $('run-error').textContent = data.error || 'The run failed.';
     show('run-error');
   }
