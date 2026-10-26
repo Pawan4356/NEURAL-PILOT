@@ -1,8 +1,8 @@
 """Dataset meta-feature extraction.
 
 Produces two things from a pandas DataFrame:
-- a small numeric vector used for nearest-neighbor retrieval (§5) and
-  plateau-independent similarity lookups
+- the meta-features used by experiment memory. The scaled retrieval vector
+  is built from them in `memory/similarity.py`
 - a column-level summary (names/dtypes/cardinality — never raw rows) that
   is safe to hand to an LLM per the Requirement Understanding Agent's
   input contract (§3.1)
@@ -24,9 +24,19 @@ class DatasetMetaFeatures:
     missing_pct: float
     categorical_ratio: float
     columns: list[dict[str, Any]]
+    # Target-aware extras used by the retrieval vector (memory_vector).
+    max_cardinality: int = 0  # largest categorical feature cardinality
+    minority_class_ratio: float | None = None  # classification-like targets
+    target_skew: float | None = None  # numeric targets
+    # Meta-features v2 (Phase 7). Records stored before v2 lack these fields
+    # and get these defaults, which the similarity vector treats as neutral.
+    text_ratio: float = 0.0  # share of high-cardinality free-text features
+    datetime_present: bool = False
+    mean_abs_skew_numeric: float | None = None  # mean |skew| over numeric features
 
     def vector(self) -> list[float]:
-        """The 5-dim vector used for cosine-similarity retrieval (§5)."""
+        """Legacy raw 5-dim vector, kept in stored records for reference.
+        Retrieval uses memory_vector(), which is scaled."""
         return [
             float(self.n_rows),
             float(self.n_cols),
@@ -63,6 +73,26 @@ def is_categorical_column(series: pd.Series) -> bool:
     return False
 
 
+def is_text_column(series: pd.Series) -> bool:
+    """Free text: string-like values that are mostly distinct. Such a column
+    is not a useful category, so it is counted apart from categoricals."""
+    if not (pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)):
+        return False
+    nunique = series.nunique(dropna=True)
+    return nunique > 50 and nunique / max(len(series), 1) > 0.5
+
+
+def _mean_abs_skew(df: pd.DataFrame, columns: list[str]) -> float | None:
+    """Mean absolute skew of the numeric feature columns, or None when there
+    are none (or none has a finite skew)."""
+    skews = []
+    for col in columns:
+        skew = df[col].astype(float).skew()
+        if pd.notna(skew):
+            skews.append(abs(float(skew)))
+    return float(sum(skews) / len(skews)) if skews else None
+
+
 def extract_meta_features(
     df: pd.DataFrame, target_column: str | None = None
 ) -> DatasetMetaFeatures:
@@ -80,6 +110,20 @@ def extract_meta_features(
     if target_column is not None and target_column in df.columns:
         n_classes = int(df[target_column].nunique(dropna=True))
 
+    feature_cols = [c for c in df.columns if c != target_column]
+    max_cardinality = max(
+        (int(df[c].nunique(dropna=True)) for c in feature_cols if c in categorical_cols), default=0
+    )
+    minority_class_ratio = None
+    target_skew = None
+    if target_column is not None and target_column in df.columns:
+        target = df[target_column].dropna()
+        if 1 < target.nunique() <= 50:
+            minority_class_ratio = float(target.value_counts(normalize=True).min())
+        if pd.api.types.is_numeric_dtype(target) and not pd.api.types.is_bool_dtype(target) and len(target) > 2:
+            skew = target.astype(float).skew()
+            target_skew = None if pd.isna(skew) else float(skew)
+
     columns = [
         {
             "name": col,
@@ -91,6 +135,13 @@ def extract_meta_features(
         for col in df.columns
     ]
 
+    text_cols = [c for c in feature_cols if is_text_column(df[c])]
+    numeric_cols = [
+        c
+        for c in feature_cols
+        if pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c])
+    ]
+
     return DatasetMetaFeatures(
         n_rows=n_rows,
         n_cols=n_cols,
@@ -98,4 +149,11 @@ def extract_meta_features(
         missing_pct=missing_pct,
         categorical_ratio=categorical_ratio,
         columns=columns,
+        max_cardinality=max_cardinality,
+        minority_class_ratio=minority_class_ratio,
+        target_skew=target_skew,
+        text_ratio=len(text_cols) / len(feature_cols) if feature_cols else 0.0,
+        datetime_present=any(pd.api.types.is_datetime64_any_dtype(df[c]) for c in feature_cols),
+        mean_abs_skew_numeric=_mean_abs_skew(df, numeric_cols),
     )
+

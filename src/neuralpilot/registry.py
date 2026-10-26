@@ -20,8 +20,12 @@ from typing import Any, Callable, Literal
 
 from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
     GradientBoostingClassifier,
     GradientBoostingRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
     RandomForestClassifier,
     RandomForestRegressor,
 )
@@ -32,12 +36,14 @@ from sklearn.preprocessing import (
     OrdinalEncoder,
     RobustScaler,
     StandardScaler,
+    TargetEncoder,
 )
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from xgboost import XGBClassifier, XGBRegressor
 
 ProblemType = Literal["classification", "regression"]
 Category = Literal["encoder", "scaler", "model_family", "tuner"]
+ResourceClass = Literal["light", "medium", "heavy"]
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,15 @@ class ComponentSpec:
     # config.INTERPRETABILITY_TABLE (§4.4).
     interp_class: str | None = None
     supports: tuple[ProblemType, ...] = ("classification", "regression")
+    # --- v2 (Phase 4): used by plan resolution and candidate generation ---
+    aliases: tuple[str, ...] = ()  # other names the planner may use for this component
+    # Components in one group do the same job, so swapping between them keeps
+    # the meaning of the plan ("gbdt", "linear", "one_hot_like", "scale", ...).
+    semantic_group: str = ""
+    alternatives: tuple[str, ...] = ()  # ranked substitutes, same group first
+    resource_class: ResourceClass = "medium"
+    # Above this many training rows the component is considered over budget.
+    max_rows_hint: int | None = None
 
 
 @dataclass
@@ -78,12 +93,31 @@ _ENCODERS: dict[str, ComponentSpec] = {
         lambda **kw: OrdinalEncoder(
             handle_unknown="use_encoded_value", unknown_value=-1, **kw
         ),
+        aliases=("Ordinal", "LabelEncoder"),
+        semantic_group="ordinal_like",
+        alternatives=("OneHotEncoder", "TargetEncoder"),
+        resource_class="light",
     ),
     # Categories with no inherent order
     "OneHotEncoder": ComponentSpec(
         "OneHotEncoder",
         "encoder",
         lambda **kw: OneHotEncoder(handle_unknown="ignore", sparse_output=False, **kw),
+        aliases=("OneHot", "OHE"),
+        semantic_group="one_hot_like",
+        alternatives=("OrdinalEncoder", "TargetEncoder"),
+        resource_class="light",
+    ),
+    # Replaces each category with a smoothed mean of the target (cross-fitted
+    # inside fit, so it is safe in a pipeline). One column per input column.
+    "TargetEncoder": ComponentSpec(
+        "TargetEncoder",
+        "encoder",
+        lambda **kw: TargetEncoder(**kw),
+        aliases=("TargetEncoding", "MeanEncoder"),
+        semantic_group="target_stat",
+        alternatives=("OneHotEncoder", "OrdinalEncoder"),
+        resource_class="light",
     ),
 }
 
@@ -92,11 +126,35 @@ _ENCODERS: dict[str, ComponentSpec] = {
 # ---------------------------------------------------------------------------
 _SCALERS: dict[str, ComponentSpec] = {
     # Removes the mean and scales data to have a standard deviation of 1 (mean = 0, variance = 1).
-    "StandardScaler": ComponentSpec("StandardScaler", "scaler", lambda **kw: StandardScaler(**kw)),
+    "StandardScaler": ComponentSpec(
+        "StandardScaler",
+        "scaler",
+        lambda **kw: StandardScaler(**kw),
+        aliases=("Standard", "ZScore"),
+        semantic_group="scale",
+        alternatives=("RobustScaler", "MinMaxScaler"),
+        resource_class="light",
+    ),
     # Rescales every feature to a fixed range, usually between 0 and 1 (or -1 to 1 if negative values exist).
-    "MinMaxScaler": ComponentSpec("MinMaxScaler", "scaler", lambda **kw: MinMaxScaler(**kw)),
+    "MinMaxScaler": ComponentSpec(
+        "MinMaxScaler",
+        "scaler",
+        lambda **kw: MinMaxScaler(**kw),
+        aliases=("MinMax",),
+        semantic_group="scale",
+        alternatives=("StandardScaler", "RobustScaler"),
+        resource_class="light",
+    ),
     #  Uses the median and the Interquartile Range (IQR) instead of the mean and standard deviation.
-    "RobustScaler": ComponentSpec("RobustScaler", "scaler", lambda **kw: RobustScaler(**kw)),
+    "RobustScaler": ComponentSpec(
+        "RobustScaler",
+        "scaler",
+        lambda **kw: RobustScaler(**kw),
+        aliases=("Robust",),
+        semantic_group="scale",
+        alternatives=("StandardScaler", "MinMaxScaler"),
+        resource_class="light",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -158,15 +216,111 @@ def _catboost(problem_type: ProblemType, **kw):
     return CatBoostClassifier(**kw) if problem_type == "classification" else CatBoostRegressor(**kw)
 
 
+def _hist_gbm(problem_type: ProblemType, **kw):
+    # Histogram-based boosting: bins the features, so it is fast on large
+    # tables and handles NaN natively (the pipeline still imputes first).
+    kw.setdefault("random_state", 42)
+    return (
+        HistGradientBoostingClassifier(**kw)
+        if problem_type == "classification"
+        else HistGradientBoostingRegressor(**kw)
+    )
+
+
+def _extra_trees(problem_type: ProblemType, **kw):
+    kw.setdefault("random_state", 42)
+    return (
+        ExtraTreesClassifier(**kw)
+        if problem_type == "classification"
+        else ExtraTreesRegressor(**kw)
+    )
+
+
+# Model groups: families in one group solve the problem the same way, so
+# substituting one for another keeps the plan's meaning (Deliverable 8.2).
 _MODEL_FAMILIES: dict[str, ComponentSpec] = {
-    "LinearModel": ComponentSpec("LinearModel", "model_family", _linear_model, interp_class="linear"),
-    "DecisionTree": ComponentSpec("DecisionTree", "model_family", _tree_model, interp_class="tree"),
-    "RandomForest": ComponentSpec(
-        "RandomForest", "model_family", _random_forest, interp_class="random_forest"
+    "LinearModel": ComponentSpec(
+        "LinearModel",
+        "model_family",
+        _linear_model,
+        interp_class="linear",
+        aliases=("LogisticRegression", "Ridge", "LinearRegression"),
+        semantic_group="linear",
+        alternatives=("DecisionTree", "RandomForest"),
+        resource_class="light",
     ),
-    "GradientBoosting": ComponentSpec("GradientBoosting", "model_family", _gbm, interp_class="gbm"),
-    "XGBoost": ComponentSpec("XGBoost", "model_family", _xgboost, interp_class="xgboost"),
-    "CatBoost": ComponentSpec("CatBoost", "model_family", _catboost, interp_class="catboost"),
+    "DecisionTree": ComponentSpec(
+        "DecisionTree",
+        "model_family",
+        _tree_model,
+        interp_class="tree",
+        aliases=("DecisionTreeClassifier", "DecisionTreeRegressor"),
+        semantic_group="tree",
+        alternatives=("RandomForest", "HistGradientBoosting"),
+        resource_class="light",
+    ),
+    "RandomForest": ComponentSpec(
+        "RandomForest",
+        "model_family",
+        _random_forest,
+        interp_class="random_forest",
+        aliases=("RandomForestClassifier", "RandomForestRegressor"),
+        semantic_group="bagging_tree",
+        alternatives=("ExtraTrees", "HistGradientBoosting"),
+        resource_class="medium",
+    ),
+    "ExtraTrees": ComponentSpec(
+        "ExtraTrees",
+        "model_family",
+        _extra_trees,
+        interp_class="extra_trees",
+        aliases=("ExtraTreesClassifier", "ExtraTreesRegressor"),
+        semantic_group="bagging_tree",
+        alternatives=("RandomForest", "HistGradientBoosting"),
+        resource_class="medium",
+    ),
+    "GradientBoosting": ComponentSpec(
+        "GradientBoosting",
+        "model_family",
+        _gbm,
+        interp_class="gbm",
+        aliases=("GradientBoostingClassifier", "GradientBoostingRegressor", "GBM"),
+        semantic_group="gbdt",
+        alternatives=("HistGradientBoosting", "XGBoost"),
+        resource_class="medium",
+        # sklearn's exact gradient boosting is slow beyond this many rows.
+        max_rows_hint=250_000,
+    ),
+    "HistGradientBoosting": ComponentSpec(
+        "HistGradientBoosting",
+        "model_family",
+        _hist_gbm,
+        interp_class="hist_gbm",
+        aliases=("HistGB", "HGBT", "HistGradientBoostingClassifier", "HistGradientBoostingRegressor"),
+        semantic_group="gbdt",
+        alternatives=("XGBoost", "GradientBoosting"),
+        resource_class="medium",
+    ),
+    "XGBoost": ComponentSpec(
+        "XGBoost",
+        "model_family",
+        _xgboost,
+        interp_class="xgboost",
+        aliases=("XGBClassifier", "XGBRegressor"),
+        semantic_group="gbdt",
+        alternatives=("HistGradientBoosting", "GradientBoosting"),
+        resource_class="medium",
+    ),
+    "CatBoost": ComponentSpec(
+        "CatBoost",
+        "model_family",
+        _catboost,
+        interp_class="catboost",
+        aliases=("CatBoostClassifier", "CatBoostRegressor"),
+        semantic_group="gbdt",
+        alternatives=("XGBoost", "HistGradientBoosting"),
+        resource_class="heavy",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -205,12 +359,57 @@ _FALLBACK_DEFAULTS: dict[Category, str] = {
 }
 
 
+def find_component(category: Category, name: str) -> ComponentSpec | None:
+    """Exact name first, then a registered alias (case-insensitive)."""
+    table = REGISTRY.get(category)
+    if table is None:
+        raise ValueError(f"Unknown component category: {category}")
+    if name in table:
+        return table[name]
+    folded = str(name).strip().casefold()
+    for spec in table.values():
+        if folded in {alias.casefold() for alias in spec.aliases}:
+            return spec
+    return None
+
+
 def component_exists(category: Category, name: str) -> bool:
-    return name in REGISTRY.get(category, {})
+    return find_component(category, name) is not None
 
 
 def list_components(category: Category) -> list[str]:
     return sorted(REGISTRY.get(category, {}).keys())
+
+
+def components_supporting(category: Category, problem_type: ProblemType) -> list[str]:
+    return sorted(
+        name for name, spec in REGISTRY.get(category, {}).items() if problem_type in spec.supports
+    )
+
+
+def default_component(
+    category: Category, *, categorical_cardinality: int | None = None
+) -> ComponentSpec:
+    """The deterministic choice when nothing usable was requested (§4.3)."""
+    if category == "encoder":
+        name = (
+            "OrdinalEncoder"
+            if categorical_cardinality is not None and categorical_cardinality <= 10
+            else "OneHotEncoder"
+        )
+    else:
+        name = _FALLBACK_DEFAULTS[category]
+    return REGISTRY[category][name]
+
+
+def get_model_group(model_family_name: str) -> str | None:
+    spec = find_component("model_family", model_family_name)
+    return spec.semantic_group if spec else None
+
+
+def get_resource_class(category: Category, name: str) -> str:
+    spec = find_component(category, name)
+    return spec.resource_class if spec else "medium"
 
 
 def resolve_component(
@@ -225,22 +424,15 @@ def resolve_component(
     if table is None:
         raise ValueError(f"Unknown component category: {category}")
 
-    if name in table:
-        return table[name], None
+    spec = find_component(category, name)
+    if spec is not None:
+        return spec, None
 
-    if category == "encoder":
-        fallback_name = (
-            "OrdinalEncoder"
-            if categorical_cardinality is not None and categorical_cardinality <= 10
-            else "OneHotEncoder"
-        )
-    else:
-        fallback_name = _FALLBACK_DEFAULTS[category]
-
-    record = FallbackRecord(category=category, requested=name, used=fallback_name, reason="unsupported")
-    return table[fallback_name], record
+    fallback = default_component(category, categorical_cardinality=categorical_cardinality)
+    record = FallbackRecord(category=category, requested=name, used=fallback.name, reason="unsupported")
+    return fallback, record
 
 
 def get_interp_class(model_family_name: str) -> str | None:
-    spec = _MODEL_FAMILIES.get(model_family_name)
+    spec = find_component("model_family", model_family_name)
     return spec.interp_class if spec else None

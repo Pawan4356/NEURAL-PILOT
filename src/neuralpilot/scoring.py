@@ -4,6 +4,9 @@
 
 No LLM involvement. Weights come from the Requirement Understanding Agent
 output; everything else is computed from execution results.
+
+latency_norm uses absolute latency (ms per 1 000 predicted rows) against a
+fixed reference, so the same attempt gets the same score in any iteration.
 """
 
 from __future__ import annotations
@@ -15,7 +18,13 @@ from .schemas import BlockDiagnostics, ConstraintWeights, ProblemType, Validatio
 DEFAULT_INTERP_NORM = 0.5  # unknown model family — neither rewarded nor punished
 
 
-def _accuracy_norm(raw_metrics: dict[str, float], problem_type: ProblemType) -> float:
+def _accuracy_norm(
+    raw_metrics: dict[str, float], problem_type: ProblemType, primary_metric: str | None = None
+) -> float:
+    # rmse/mae are unbounded errors, not [0, 1] scores — fall through for those.
+    if primary_metric in raw_metrics and primary_metric not in ("rmse", "mae"):
+        return max(0.0, min(1.0, float(raw_metrics[primary_metric])))
+
     if problem_type == "classification":
         value = raw_metrics.get("f1", raw_metrics.get("accuracy"))
         if value is None:
@@ -34,10 +43,11 @@ def _accuracy_norm(raw_metrics: dict[str, float], problem_type: ProblemType) -> 
     return 1.0 / (1.0 + max(0.0, float(rmse)))
 
 
-def _latency_norm(latency_seconds: float, rolling_max_latency: float) -> float:
-    if rolling_max_latency <= 0:
+def _latency_norm(latency_ms_per_1k: float) -> float:
+    reference = config.LATENCY_REFERENCE_MS_PER_1K
+    if reference <= 0:
         return 0.0
-    return max(0.0, min(1.0, latency_seconds / rolling_max_latency))
+    return max(0.0, min(1.0, latency_ms_per_1k / reference))
 
 
 def _interp_norm(model_family: str) -> float:
@@ -50,17 +60,17 @@ def _interp_norm(model_family: str) -> float:
 def compute_validation(
     *,
     raw_metrics: dict[str, float],
-    latency_seconds: float,
-    rolling_max_latency: float,
+    latency_ms_per_1k: float,
     model_family: str,
     problem_type: ProblemType,
     weights: ConstraintWeights,
     per_block_diagnostics: list[BlockDiagnostics],
+    primary_metric: str | None = None,
 ) -> ValidationReport:
     w = weights.normalized()
 
-    accuracy_norm = _accuracy_norm(raw_metrics, problem_type)
-    latency_norm = _latency_norm(latency_seconds, rolling_max_latency)
+    accuracy_norm = _accuracy_norm(raw_metrics, problem_type, primary_metric)
+    latency_norm = _latency_norm(latency_ms_per_1k)
     interp_norm = _interp_norm(model_family)
 
     composite_score = (
@@ -74,6 +84,8 @@ def compute_validation(
         interp_norm=interp_norm,
         raw_metrics=raw_metrics,
         per_block_diagnostics=per_block_diagnostics,
+        primary_metric=primary_metric,
+        latency_ms_per_1k=latency_ms_per_1k,
     )
 
 

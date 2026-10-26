@@ -22,6 +22,250 @@
 
 ---
 
+## Implementation Progress (living section — read this first)
+
+### Rules for every session that continues this roadmap
+1. **Read this section before starting work.** It says which phases are done, where the code is, and what was deliberately done differently from the plan below.
+2. **When a phase is finished, update this section in the same session**: tick the phase in the status table, add a "Phase N — done" entry (what was built, tests added, verification results, deviations, known limitations), tick the matching items in Deliverable 12, and update "Next up".
+3. **Keep the code modular and human-readable:** one responsibility per module, small named functions, docstrings that explain *why*, comments and naming that match the surrounding code, no clever one-liners. Someone new to the project should be able to follow a run by reading `orchestrator.py` → `graph/routing.py` → `graph/nodes.py` → `engine/runner.py` → the engine components.
+4. Run tests with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q -p no:warnings` (ROS plugins break plain `pytest` on this machine). A phase is not done until the full suite passes. `uv` lives at `~/.local/bin/uv` (not on `PATH`); add dependencies with `env -u PYTHONPATH ~/.local/bin/uv add <pkg>`.
+5. Where a phase's plan below turns out to be wrong or incomplete, follow the better design, then record the deviation and the reason here.
+
+### Status
+
+| Phase | Status | Date |
+|---|---|---|
+| 0 — Correctness safety net | ✅ Done (commit `3b08e64`) | 2026-10-24 |
+| 1 — Evaluation protocol + engine package split | ✅ Done (commit `3b08e64`) | 2026-10-24 |
+| 2 — LangChain LLM layer + LangSmith | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
+| 3 — LangGraph orchestration | ✅ Done (uncommitted, branch `phase2-3`) | 2026-10-24 |
+| 4 — Registry v2, candidates, diversity | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
+| 5 — Constraint validator + ValidationReport v2 | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
+| 6 — MLflow tracking | ✅ Done (uncommitted, branch `lang`) | 2026-10-24 |
+| 7 — Experiment memory v2 | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 8 — Documentation RAG | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 9 — Reflection v2 + deterministic routing | ✅ Done (uncommitted, branch `lang`) | 2026-10-25 |
+| 10 — External research | ⏸ Held by the owner (not started) | |
+| 11 — Final report, UI, E2E acceptance | ⬜ Not started | |
+
+**Next up:** Phase 11 (final report, UI, E2E acceptance). The UI must render the report fields added in Phases 4–9: `constraint_table`, `pareto_front`, `unsupported_recommendations`, `mlflow_run_id`, the per-iteration `candidates` log, and now the reflection's `violated_constraints`, `suggestions` and `guard_notes`, and each iteration's routing rationale. Phase 10 (web research) is held by the owner. Still owed from Phases 2–9: one manual run with a real `HF_TOKEN` (this also exercises the reflection v2 prompt and the documentation passages with a real model), a LangSmith key, `mlflow ui`, and a build of the documentation index on the target machine (`python -m neuralpilot.knowledge.ingest`; until then the planner gets no passages).
+
+### Phase 7 + 8 + 9 — done (2026-10-25)
+
+**Test status:** 312 tests pass (full suite, `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest`), up from 248 at the start of this phase. The one failure carried in from before (`langchain_nvidia_ai_endpoints` not installed in the venv) is gone: `uv add` synced it. `ruff check --select F,E9` is clean on everything this phase touched; two unused `pytest` imports in `tests/test_execution.py` and `tests/test_verification.py` predate this phase and were left alone.
+
+**Where the code lives**
+- Phase 7 (experiment memory v2)
+  - `memory/migrations.py` — schema v3: `runs.evidence_quality`, the `attempts` table (one row per signature), and the backfill that marks legacy churn runs without a report as `suspect_leakage`.
+  - `memory/store.py` — `ExperimentRepository` (moved from `repository.py`, which is now a re-export shim), `save_attempts`/`attempts_for_run`, and `is_usable_evidence` (finalized, not suspect, every plan component still in the registry, final model feasible).
+  - `memory/similarity.py` — `memory_vector` v2 (10 dimensions) and `similarity`. Legacy records read the new dimensions as neutral 0.
+  - `meta_features.py` — `text_ratio`, `datetime_present`, `mean_abs_skew_numeric`.
+  - Warm start: `candidates.WarmStart`, `CandidatePlan.warm_start_params`, `AttemptSummary.best_params`; `engine/hpo.py` declares the search space as Optuna distributions, `within_space` filters stored params against them, and `tune` enqueues the survivors as the first trial; `engine/runner.py` threads `warm_start_params` through.
+  - `scripts/benchmark_memory.py` — memory-on versus memory-off benchmark.
+  - Tests: `tests/test_memory.py` (17 tests), `tests/test_candidates.py` (+2).
+- Phase 8 (documentation RAG)
+  - `knowledge/` — `chunks.py` (heading sections, 450-word windows with 60-word overlap, content-hash ids), `fetch.py` (allow-listed hosts, main-content extraction, stdlib HTML parser), `sources.py` (validates `knowledge_sources/*.yaml`: host, registry component ids, task types, trust), `store.py` (Chroma wrapper; `open_index()` returns `None` when no index exists), `registry_cards.py` (one card per registry component, rebuilt on every ingest), `retrieve.py` (templated dataset query, task and registry filters, `check_citations`), `ingest.py` (offline CLI), `evaluate.py` (recall@5 and MRR on labelled queries).
+  - `knowledge_sources/` — 15 official pages in five YAML files. `tests/rag_eval/queries.yaml` — 36 labelled queries.
+  - Planner: `PlanSpec.evidence_ids`; the prompt lists passages with their ids; `resolve_plan` drops ids that were not retrieved. `graph/context.py` carries the index; `retrieve_knowledge` fills `knowledge_passages`; a retrieval failure is logged and the run continues without passages.
+  - Tests: `tests/test_rag.py` (27 tests, offline, using a local hashing embedding).
+- Phase 9 (reflection v2 and deterministic routing)
+  - `schemas.py` — `ReflectionOutput` v2 (`diagnosis`, `violated_constraints`, `proposed_action`, `suggestions`, `expected_effect`, `confidence`, `guard_notes`; all optional, so the old two-field reply still parses), `ReflectionSuggestion`, `ProposedAction`.
+  - `agents/reflection_agent.py` — prompt shows failing constraints and attempts executed so far; a claimed violation that does not match a failing constraint is sent back once, and anything still unmatched is dropped and noted.
+  - `reflection_guard.py` — `split_violated_claims`, `suggestion_plan`, `usable_suggestions` (resolved through the registry, de-duplicated against executed signatures). The `reflect` node keeps only usable suggestions; if every suggestion is dead, `proposed_action` becomes `none`.
+  - `graph/decision.py` — `decide_route`, a pure function: cancel → budget → iteration cap → accept → plateau → refine → replan. Table-tested in `tests/test_decision.py`.
+  - `agents/decision_agent.py` deleted. The `decide` node is deterministic.
+  - Tests: `tests/test_reflection_v2.py` (14 tests), `tests/test_decision.py` (14 tests).
+
+**Verification**
+- Real ingestion (`python -m neuralpilot.knowledge.ingest`): 15 pages, 313 passages, 17 registry cards; index size 330, stored in `runs/knowledge/chroma` (git-ignored). The first run downloads Chroma's default embedding model (`all-MiniLM-L6-v2`, about 80 MB).
+- Retrieval on the 36 labelled queries (labels written from page contents before any retrieval ran): recall@5 = 0.944, MRR = 0.907. The two misses are both target-encoding queries ("target encoding ... cross fitting", "why target encoding can leak"). Not tuned after seeing results.
+- Memory benchmark (churn training file as the past run, churn testing file as the target, GradientBoosting, two seeds): BENCHMARK_RESULT_PLACEHOLDER
+
+**Deviations from the plan (deliberate)**
+- **Every run now takes at least two iterations unless a guardrail stops it earlier.** Accept is never granted on iteration 1 (Phase 9 "no LLM-only stop/accept on iteration 1", read as requiring a measured change). A first plan that is already good therefore pays for one more iteration of HPO. Flagged for the owner to decide whether iteration 1 may accept when the best attempt is feasible and nothing is proposed.
+- **The LLM Decision Agent is removed.** Its narrative role is not kept; the decision rationale is the rule's own text.
+- **Refine needs a proposed change.** A reflection with only the old fields (no `proposed_action`) now replans rather than refines.
+- **Legacy migration keys on the audit's rule, not on the leakage check itself.** A finalized run with no stored report whose dataset name contains "churn" is marked `suspect_leakage`. The workspace database holds no rows, so the migration is tested only on a synthetic legacy database.
+- **Phase 7 features not built:** `n_id_columns_dropped` (ID detection lives in the engine's profiling, not in meta-features).
+- **Phase 8 features not built:** MMR diversification (passages are the top-k nearest that pass the filters), the `lessons` collection, `scripts/ingest_docs.py` (the module CLI replaces it), and the research path (Phase 10).
+- **Warm starts are one trial, not a seeded study.** The best stored parameters are enqueued as the first trial and count toward the trial cap. Only the same model family's parameters transfer.
+- **Suggestions are advisory.** Usable reflection suggestions go to the planner's refine prompt; they are not executed directly.
+
+**Known limitations / open items carried forward**
+- Live checks still owed from Phases 2–9: a real HF run (this exercises the reflection v2 prompt and the passages with a real model), a LangSmith trace, `mlflow ui`, and building the documentation index on the target machine.
+- Passage quality on the two target-encoding misses is unexplained; the index has not been inspected for those pages.
+- Reflection's `expected_effect` and `confidence` are recorded but nothing reads them yet.
+- The memory benchmark ran on one dataset pair with two seeds. It shows whether the warm start works on this pair, not whether memory helps in general.
+
+### Phase 4 + 5 + 6 — done (2026-10-24)
+
+**Test status:** 248 tests pass: the 178 that passed at the start of this phase (three changed on purpose, see below) plus 70 new. The full suite passes with `env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest`. `ruff check --select F` is clean on the files this phase touched. Real-data smoke run (not in the test suite): the churn testing file (`CustomerID` excluded; planner `LinearModel` 0.838 CV f1, challenger `HistGradientBoosting` 0.9997 selected; holdout 0.9998; 125 s with 6 HPO trials per candidate).
+
+**Where the code lives**
+- Phase 4
+  - `registry.py` — `ComponentSpec` v2 fields (`aliases`, `semantic_group`, `alternatives`, `resource_class`, `max_rows_hint`); `find_component` (name or alias), `components_supporting`, `default_component`, `get_model_group`. New: `TargetEncoder`, `HistGradientBoosting`, `ExtraTrees`.
+  - `plan_resolution.py` — `resolve(plan, profile, …) -> ResolvedPlan | PlanRejection`. Exact/alias match, else a ranked alternative (same semantic group first; score = 0.4·task + 0.25·data + 0.2·memory prior + 0.15·(1−cost)). Substitutions are returned as `UnsupportedRecommendation`s. Encoder swaps across groups only for tree models. Hard glass-box requirements replace black-box families.
+  - `candidates.py` — `build_candidates`: the planner's plan first, then a `baseline` (LinearModel, else DecisionTree), a `profile` family (HistGradientBoosting above 50k rows, ExtraTrees at 5k rows or fewer), and a `memory` warm start from the best similar past plan. Capped at `config.MAX_CANDIDATES` (default 3); executed signatures and black-box families (under glass-box) are excluded.
+  - `engine/runner.py` — `run_attempt` accepts `tracking_tags` and always closes its tracker run; `engine/model_factory.py`, `engine/hpo.py` — class weights and search spaces for the two new families.
+  - `graph/nodes.py` — `resolve_plan` resolves the plan and builds challengers; `execute` measures every candidate (planner first; a failing challenger is logged, not fatal; challengers are skipped when cancelled or under `CHALLENGER_MIN_BUDGET_S`); `IterationLog.candidates` records each one.
+  - `repository.py` — migration 2: `runs.mlflow_run_id` and the `unsupported_recommendations` table (`save_unsupported`, `unsupported_for_run`).
+  - `agents/planning_agent.py` — the prompt lists components the run could not use, with the alternative that was used.
+- Phase 5
+  - `schemas.py` — `Constraint` (names: `min_primary_metric`, `max_latency_ms_per_1k`, `max_train_seconds`, `max_model_mb`, `max_cv_std`, `interpretability`; `kind` hard/soft), `ConstraintResult`. `RequirementSpec.constraints` drops invalid entries and notes them in `assumptions`. `AttemptSummary` carries `feasible`, `constraint_results`, `latency_ms_per_1k`, `interp_norm`, `source`.
+  - `validation/constraints.py` — checks on measured `AttemptResult` values; deterministic explanation text (e.g. `latency 82.0 ms/1k > 50.0 ms/1k limit (+64%)`). `requires_glass_box`, `is_feasible`.
+  - `validation/report.py` — `evaluate_attempt`, `pareto_front` (metric, latency, interpretability), `closest_per_violation`, `summarize_run`.
+  - `selection.py` — `is_better` is feasibility-first, then the existing CV rule.
+  - `agents/requirement_agent.py` — the prompt asks for constraints with a fixed name list.
+  - `graph/nodes.py` — `decide` refuses to accept while the best attempt misses a hard constraint and iterations/budget remain (`forced` refine).
+  - `reporting.py` — the final report gains `constraint_table`, `feasible`, `acceptable`, `feasible_count`, `pareto_front`, `closest_per_violation`, `best_plan`, `unsupported_recommendations`, `mlflow_run_id`; substitutions appear in `assumptions`.
+- Phase 6
+  - `engine/tracking.py` — `Tracker` protocol (`start_parent`, `start_attempt`, `log_metrics`, `log_artifact`, `end_attempt`, `log_final`, `end`), `NoopTracker`, `make_tracker`.
+  - `engine/mlflow_tracker.py` — `MlflowTracker`: one parent run per NeuralPilot run (tags, `holdout_*` metrics, `final_report.json`, `load_report.json`, the model), one child run per candidate (params, `cv_*` metrics, `latency_ms_per_1k`, `plan.json`). Every call is guarded.
+  - `config.py` — `MAX_CANDIDATES`, `MIN_TRIALS_PER_CANDIDATE`, `HIST_GB_MIN_ROWS`, `SMALL_DATA_ROWS`, `CHALLENGER_MIN_BUDGET_S`, `GLASS_BOX_CLASSES`, `MLFLOW_*`.
+  - `graph/state.py` / `context.py` / `orchestrator.py` — `mlflow_run_id` in state (so a resumed run keeps its parent); the tracker is built per invocation from the checkpointed parent id.
+- Tests (new): `tests/test_registry_v2.py`, `tests/test_plan_resolution.py`, `tests/test_candidates.py`, `tests/test_constraints.py` (includes an end-to-end run with an impossible limit), `tests/test_model_diversity.py` (a tree family wins on an interaction, and the linear model was still measured), `tests/test_tracking.py` (real MLflow store under `tmp_path`: parent and child runs, saved model reloads to the same predictions, tracking failure does not fail the run). Also one repository round-trip test. The `conftest.py` autouse fixture turns MLflow off and points every store at `tmp_path`.
+
+**Verification**
+- `test_saved_model_reloads_to_the_same_predictions` runs `log_model` + `mlflow.sklearn.load_model` on pandas 3.0.5 with MLflow 3.17.2: this is the Phase 6 gate from Deliverable 11.1. It passes, so full `mlflow` stays (no fallback to `mlflow-skinny`).
+- Unsafe substitution is refused: a plan whose only component cannot run the task is rejected with the list of components that can.
+- Test runs no longer write into `runs/`: the first version of the conftest let MLflow write `runs/mlflow.db`; those files were deleted and the fixture fixed.
+
+**Deviations from the plan (deliberate)**
+- **Candidates are a list in state, not a `PlanSpec.candidates` field.** The planner still produces one plan, which is the one reflected on and refined. Challengers are deterministic. This keeps the LLM contract and the refine logic unchanged.
+- **Budget split is equal, not successive halving.** Each candidate gets `HPO_MAX_TRIALS // n` trials (floor `MIN_TRIALS_PER_CANDIDATE` = 5) and `timeout / n`. Halving needs resumable Optuna studies, which `tune` does not have yet. Consequence: with the default cap of 50 and 3 candidates, the planner's own plan now gets 16 trials per iteration instead of 50. Set `NEURALPILOT_MAX_CANDIDATES=1` to restore the old behaviour.
+- **Model artifact uses cloudpickle, not MLflow's default skops format.** skops rejects `sklearn.tree._tree.Tree`, so the default cannot log a random forest. The store is local and written by this process, which is the case where pickle is acceptable. MLflow logs a warning about this on every save.
+- **Signature only, no input example.** The model signature lists column names and types (`double`/`string`) with no rows, as the design requires.
+- **`ComponentSpec` v2 is partial.** Not added: `input_types`, `handles_missing`, `native_categorical`, `needs_scaling`, `param_schema` (the existing per-component validators in `engine/preprocessing.py` still do this job), `explainers`, `dependency`, `status`, and `registry_version`. Feature engineering is still an engine concern, not a registry category.
+- **LightGBM is not added.** It is optional in Deliverable 8.1 (only if the compatibility check passes). `HistGradientBoosting` covers the same role without a new native dependency, and LightGBM can be registered later.
+- **`TargetEncoder` substitutes only for tree models across groups.** It is registered (cross-fitted inside `fit`, so it is safe in CV), but a linear model never gets a target-encoded feature by substitution.
+- **Selection tie-breaks** use the existing composite score. The design's "lower latency, then higher interpretability" tie-break is not implemented.
+- **Constraints come from the requirement agent only.** The web form fields listed as optional in Phase 5 are not added.
+- **Plateau detection** still uses the composite score of the planner's plan, not the best feasible attempt.
+- **Resolution uses the training row count** (`n_train`) for the over-budget check, not the full row count.
+- **Reflection does not see constraint failures yet.** That is Phase 9 (Deliverable 9.5).
+- **Not built:** `scripts/registry_gaps.py`, `scripts/model_selection_report.py`, and `registry_version` hashes. The data they need is recorded (`unsupported_recommendations`, `IterationLog.candidates`).
+
+**Known limitations / open items carried forward**
+- The planner's prompt does not mention that challengers exist, and the planner cannot see challenger results beyond the "Already tried" list (which includes them).
+- A replan can now re-ask the planner when its proposed plan equals a challenger that was already measured. This is correct (the signature was executed), but it uses one of the planner's `MAX_PLAN_ATTEMPTS` retries.
+- `TargetEncoder` and `HistGradientBoosting` have only the synthetic and churn runs behind them; no real LLM has proposed them yet.
+- MLflow's UI was not opened in a browser; `mlflow ui --backend-store-uri sqlite:///runs/mlflow.db` is the suggested check.
+- Still owed from before: a real `HF_TOKEN` run and a real LangSmith trace (see Phases 2–3).
+
+### Phase 2 + 3 — done (2026-10-24)
+
+**Test status:** 174 tests pass: the 126 from Phase 0/1 (three updated, see below) plus 48 new.
+
+**Where the code lives**
+- `src/neuralpilot/langchain_llm.py` — `LangChainLLMClient` (same `complete_json` protocol), `build_chat_model` (`ChatHuggingFace` over HF Inference Providers, same `HF_*` settings), `call_with_backoff` / `is_transient`.
+- `src/neuralpilot/llm_client.py` — protocol and original `HFLLMClient` unchanged; `get_default_client()` picks the backend from `NEURALPILOT_LLM_BACKEND` (`langchain` default, `hf` rollback).
+- `src/neuralpilot/observability.py` — `run_tracing()`, `traced()`, `redact_payload()`, `redaction_hooks()`, `tracing_status()`.
+- `src/neuralpilot/graph/` — `state.py` (`NPState` TypedDict, reducers, checkpoint type allowlist), `context.py` (`RunContext`: repo, cancel flag, progress callback, optional LLM client), `resources.py` (bounded caches for DataFrames, `PreparedData`, best pipeline), `nodes.py` (one function per step), `routing.py` (pure routers + `recursion_limit`), `build.py` (wiring, error guard, `SqliteSaver`).
+- `src/neuralpilot/orchestrator.py` — now a façade: `create_run`, `run_to_completion`, `apply_clarification`, and `RunState` as the UI projection of graph state. `web/app.py` did not need changes.
+- `src/neuralpilot/selection.py` (`is_better`, `next_untried_plan`) and `src/neuralpilot/reporting.py` (final report, finalized/failed records) — logic moved out of the old orchestrator unchanged.
+- `schemas.py` — `IterationLog` and `BestAttempt` are now Pydantic models (they live in checkpointed state).
+- Tests: `tests/test_llm_adapter.py`, `tests/test_tracing_redaction.py`, `tests/graph/test_routing.py`, `tests/graph/test_graph_e2e.py`, a full web-flow test in `tests/test_web.py`, and `tests/conftest.py` (sends checkpoints and models to a temp dir).
+
+**Phase 2 — LangChain + LangSmith**
+- Each call first asks the provider for structured output (`with_structured_output`, method from `NEURALPILOT_LLM_STRUCTURED_METHOD`, default `function_calling`), then falls back to plain chat + the existing JSON-repair loop. A capability error (provider has no tool calling) switches structured output off for that client; a reply that just doesn't fit the schema falls back for that call only. `NEURALPILOT_LLM_STRUCTURED_OUTPUT=auto|on|off`.
+- Transport retries (429/408/5xx, timeouts, dropped connections): ≤ 3 attempts, exponential backoff with jitter, separate from JSON-repair retries. Client errors (400/401) are raised at once.
+- Tracing: when `LANGSMITH_TRACING=true`, one run = one trace (`neuralpilot_run`), with a span per graph node, per agent (`requirement_agent`, `planning_agent` with iteration/replan metadata, `reflection_agent`, `decision_agent` with iteration) and per LLM call. Root and LLM spans carry `run_id`, `dataset_fingerprint`, `code_version`, `llm_backend`, `llm_model`.
+- Redaction (inside LangSmith's own `hide_inputs`/`hide_outputs`, plus `process_inputs` on agent spans): keys like `df`, `rows`, `sample`, `api_key`, `token`; any DataFrame/Series/ndarray; `shap_summary` (one-hot feature names contain category values); and the values of `HF_TOKEN`, `LANGSMITH_API_KEY`, `TAVILY_API_KEY` wherever they appear.
+- Startup log prints the backend/model and whether tracing is on (never the key).
+
+**Phase 3 — LangGraph**
+- Graph: `understand → [clarify] → prepare → retrieve_knowledge → start_iteration → plan → resolve_plan → execute → reflect → decide → (start_iteration | finalize → persist)`, with `fail` reachable from every node. Diagram in the `graph/routing.py` docstring.
+- Every node is wrapped so an exception becomes `error` in state and the routers send it to `fail`, which persists the run as failed. Interrupts pass through. Errors that escape the graph (e.g. the recursion limit) are caught by the façade and persisted too.
+- Clarification is `interrupt()` + `Command(resume=…)`. The façade validates the answer first (bad answer → HTTP 400, run keeps waiting, as before); the `clarify` node re-validates, re-asks once, then fails (`MAX_CLARIFICATION_ROUNDS = 2`).
+- Checkpoints: `SqliteSaver` at `runs/graph.sqlite3`, `thread_id = run_id`, `durability="sync"`. The serializer only rebuilds NeuralPilot's own schema classes (checked with `LANGGRAPH_STRICT_MSGPACK=true`). State holds no DataFrames or fitted models.
+- Crash recovery: re-calling `run_to_completion` continues from the last finished node; a test kills the run inside `reflect` and checks the attempt is not trained again and the pipeline is reloaded from disk.
+- `recursion_limit` is computed from `max_iterations`, plan retries and clarification rounds (60 for 5 iterations).
+
+**Verification**
+- Graph scenarios: accept at 1, refine → accept, replan → different plan, duplicate plan → re-ask → deterministic fallback, verification failure ×3 → failed + persisted, budget exhausted → best so far, cancel before any attempt → failed, iteration cap → best so far, clarification pause/resume, invalid answer inside the graph → re-ask → fail, recursion limit → failed + persisted, finished run is not re-executed.
+- Web: `TestClient` test with the real background thread: upload → awaiting clarification → answer → finalized → model download.
+- Tracing: a whole run traced into a capturing LangSmith client; no category values and no `HF_TOKEN` in any payload; ≥ 4 LLM spans with `run_id`. Removing the `shap_summary` redaction makes this test fail (checked).
+- Real `ChatHuggingFace` exercised with a stubbed `InferenceClient`: the tool definition is sent and the tool call is parsed; a provider that ignores tools still works through JSON repair.
+
+**Not verified (needs your credentials; nothing was sent to Hugging Face or LangSmith)**
+- Whether `meta-llama/Llama-3.3-70B-Instruct` via `HF_PROVIDER=auto` honours tool calling (`function_calling`) or `json_schema`. If structured output keeps failing, the log says so once and the JSON-repair path is used; try `NEURALPILOT_LLM_STRUCTURED_METHOD=json_schema`.
+- A real LangSmith trace. Suggested check: `LANGSMITH_TRACING=true NEURALPILOT_MAX_ITERATIONS=2 uv run neuralpilot`, run one dataset, confirm one trace with node, agent and LLM spans.
+- The web UI in a browser (the JSON it polls is unchanged).
+
+**Deviations from the plan (deliberate)**
+- **Old loop deleted, no `NEURALPILOT_ORCHESTRATOR=legacy` switch.** Keeping two orchestrators would double the code that has to stay in sync; rollback is `git revert` to `3b08e64`. The `NEURALPILOT_LLM_BACKEND=hf` switch is kept, because LLM behaviour is the unverified part.
+- **No separate `validate` node yet.** Scoring and best-attempt selection run inside `execute`, because the fitted pipeline cannot be put in state and must be kept or dropped in the step that produced it. The best pipeline is held in memory and written to `runs/models/<run_id>.joblib` whenever it improves (so a resumed run can finalize). Phase 5's validator works on `AttemptResult`s only and can become its own node then.
+- **Decision agent kept as an LLM node** (behind the same guardrails). The roadmap's deterministic `route` node belongs to Phase 9; Phase 3 was a behaviour-preserving port.
+- **Retrieval runs once per run** (`retrieve_knowledge`), not every iteration; the result could not change mid-run.
+- **Budget clock starts at `prepare`**, after clarification, so time waiting for the user no longer counts against `RUN_BUDGET_S`.
+- **No `ChatPromptTemplate`s.** The `LLMClient` protocol takes plain strings and the prompts contain literal JSON braces that templates would need escaped; converting them adds risk for no gain until prompts are versioned (LangSmith datasets, P2).
+- **No LangGraph `RetryPolicy`.** Transport retries already happen in the adapter; a second layer would multiply retries.
+- **Structured output gets a JSON Schema dict, not the Pydantic class**, because `ChatHuggingFace` raises "Pydantic schema is not supported for function calling". The reply is validated against the Pydantic model either way.
+
+**Known limitations / open items carried forward**
+- Per-agent temperature (0 for requirement understanding, ≤ 0.3 for planning) is not set; all calls use `LLMConfig.temperature` (0.2). It needs a protocol change that would break the test fakes' signature.
+- `NEURALPILOT_PRIVACY_MODE` column aliasing and LangSmith feedback scores (`constraints_passed`, holdout metric on the root run) are not implemented; they fit Phase 5/11.
+- `runs/graph.sqlite3` is never pruned. The web app still keeps `RUNS` in memory, so after a restart the UI cannot list old runs even though their checkpoints exist (restart-safe run listing is P2).
+- Existing tests changed on purpose: the "best iteration" test loads the saved model instead of reading `state.best.outcome.pipeline` (fitted pipelines are no longer in run state); the holdout spy patches `graph.nodes.holdout_evaluate`; `MODELS_DIR` is patched on `config` via `tests/conftest.py`.
+
+### Phase 0 + 1 — done (2026-10-24)
+
+**Test status:** 126 tests pass (the original 56, some updated where the contract intentionally changed, plus 70 new).
+
+**Acceptance probe (real 440k-row churn file, the audit's old plan: GradientBoosting + SelectKBest + OptunaTPE(50), no LLM):**
+
+| Check | Result |
+|---|---|
+| `CustomerID` | Excluded as an identifier |
+| HPO | Stopped at the 300 s timeout after 14 of 50 trials; tuned on a 50k-row sample |
+| CV f1_weighted (training split) | 0.969 |
+| Holdout f1_weighted | 0.968, scored once |
+| Latency | 18.8 ms per 1k rows |
+| Total time | 457 s, within the 900 s run budget (audit estimate for this plan was ~76 min per iteration) |
+
+**Where the code lives**
+- `src/neuralpilot/engine/` — `loader`, `splits`, `preprocessing`, `feature_engineering`, `model_factory`, `hpo`, `training`, `evaluation`, `explainability`, `tracking` (no-op `Tracker` seam for Phase 6), and `runner` (`prepare_dataset` → `run_attempt` → `holdout_evaluate`, plus `plan_signature`).
+- `src/neuralpilot/execution.py` — `run_pipeline()` kept as a thin compatibility wrapper over the engine.
+- `src/neuralpilot/profiling.py` — column roles and leakage scan; `derive_problem_type`.
+- `src/neuralpilot/provenance.py` — git SHA (+dirty flag) and library versions.
+- `src/neuralpilot/orchestrator.py` — `BestAttempt`, `AttemptSummary` history, `_obtain_plan` (verify → dedupe → deterministic fallback), budget/cancel guardrails, `_finalize` (single holdout), `_persist_failure`.
+- `src/neuralpilot/repository.py` — `PRAGMA user_version` migrations, new columns, `SimilarExperiment(record, similarity)`.
+- Tests: `tests/test_loader.py`, `tests/test_profiling.py`, `tests/test_orchestrator_loop.py`, `tests/test_web.py`, `tests/engine/test_engine.py`, `tests/engine/test_splits.py`, fixtures in `tests/fixtures/`.
+
+**Phase 0 (G1–G11)**
+- **Loading (G5):** `engine/loader.py` detects `;`, tab and `|` delimiters, falls back through utf-8, utf-8-sig, cp1252 and latin-1, converts `"1,000"`-style text to numbers, and rejects junk headers, single-column, tiny and oversized files with a message that says how to fix the file.
+- **Leakage (G2):** `profiling.py` labels each column as id, constant, datetime, text, categorical or numeric, and flags columns that predict the target almost perfectly on their own (single-feature depth-3 tree, CV, on training rows only). ID, constant, datetime and text columns are excluded and listed in the report. Flagged columns are excluded too, unless `NEURALPILOT_LEAKAGE_ACTION=warn`.
+- **One metric (G8):** a single primary metric drives tuning, selection and the report: `f1_weighted` by default, `f1_macro` with balanced class weights when the smallest class is under 10%, `r2` for regression. A user-requested metric is honoured when valid.
+- **Latency (G6):** measured as the median of 3 predictions on a fixed 1,000-row sample, in ms per 1k rows, normalised against a fixed reference (`LATENCY_REFERENCE_MS_PER_1K`). The same attempt gets the same score in any iteration.
+- **Budgets (G9):** Optuna trials capped (`HPO_MAX_TRIALS`), Optuna timeout, per-run wall-clock budget (`RUN_BUDGET_S`), HPO/CV on a sample of large data (`HPO_MAX_ROWS`), bounded feature-engineering and preprocessing params. Clamped or dropped values are recorded as assumptions.
+- **Best attempt and single holdout (G1, G7):** attempts are compared on CV over the training split (primary-metric mean; within one standard error, the composite score breaks the tie). The best one, not the last, is saved and scored once on the holdout.
+- **No repeated plans (G3):** the planner sees the plans already tried with their CV scores, and is told when a replan should change strategy. If it repeats a plan it is asked once more, then the next untried registry model is used instead.
+- **Retrieval (G4):** past runs are compared on a scaled meta-feature vector (`meta_features.memory_vector`), filtered to finalized runs of the same task type, and dropped below `MIN_SIMILARITY`. The planner sees the similarity score.
+- **Persistence (G10):** failed runs are saved, with decision rationale, whether a guardrail forced the decision, iteration logs, metrics (CV and holdout), model path, code and library versions, and a dataset fingerprint. Existing databases upgrade in place.
+- **Clarification (G11):** the answer is matched to a column ignoring case; otherwise the endpoint returns 400 with the column list and the run keeps waiting. The task type is re-derived from the chosen column. An LLM-proposed target that is not a column also triggers clarification.
+
+**Phase 1**
+- `execution.py` split into the `engine/` package above, plus `splits.py` (stratified, random, group or time-ordered; one holdout per run, CV folds drawn from the training part only).
+- New schemas: `SplitSpec`, `MetricSummary`, `ResourceUsage`, `AttemptResult`, `AttemptSummary`. Results include per-fold CV summaries and resource usage (train/HPO seconds, peak RSS, latency, model size).
+- Optuna uses fold-by-fold `MedianPruner`, catches failed trials, and stops on a cancellation event. `POST /api/runs/{id}/cancel` stops after the current trial and keeps the best attempt.
+- Golden/determinism tests, holdout-isolation spy tests, time-split and group-split tests.
+
+**Deviations from the plan below (deliberate)**
+- **Plan signature** also includes the tuner, trial count and FE/preprocessing params. Otherwise a refine that only changes hyperparameters would be rejected as a duplicate.
+- **Regression leakage** uses max(depth-3 tree CV R², Spearman ρ²). A depth-3 tree alone cannot reach R² ≥ 0.98 on a continuous target, so it would miss a copy of the target.
+- **Task re-derivation:** an integer target with under 5% unique values counts as classification only if it also has 50 or fewer distinct values. The plan's rule alone would turn large regression datasets into classification.
+- **Datetime and free-text columns** are excluded as well as id and constant columns, because one-hot encoding them is harmful. Unique single-token string columns (emails, codes) count as identifiers.
+- **SHAP** runs once at finalisation on training rows (not per attempt), so explanation never touches the holdout.
+
+**Known limitations / open items carried forward**
+- The Optuna timeout is only checked between trials, so one slow trial can overrun it (churn: 322 s against a 300 s limit).
+- The student and winequality CSVs are no longer in `data/`; `;` and cp1252 handling is tested with synthetic fixtures in `tests/fixtures/`. Re-run the six real datasets when available.
+- No real LLM calls were made and the web UI was not driven in a browser. The UI still reads the old report fields; the new ones (`cv_metrics`, `holdout_metrics`, `best_iteration`, `best_hyperparameters`, `data.excluded_columns`, `reproducibility`) are not displayed yet.
+- The model artifact is still a bare pipeline without the label decoder (G20, planned for later).
+- Existing tests changed on purpose: scoring tests use absolute latency, retrieval returns `(record, similarity)`, and the GPU test patches `engine.model_factory.gpu_is_available`.
+
+---
+
 ## Deliverable 1 — Executive Assessment
 
 ### What already works
@@ -1138,25 +1382,25 @@ data/                        uploads (retention policy: delete after N days, con
 ## Deliverable 12 — Final Prioritized Checklist
 
 **Must be done first (sequential, P0, Phase 0):**
-1. [ ] Robust loader (`;`, encodings, numeric coercion, header check) + tests.
-2. [ ] Column roles + ID drop + leakage scan + tests (churn `CustomerID` regression test).
-3. [ ] Primary metric aligned across HPO, selection and report.
-4. [ ] Absolute latency; remove the rolling-max dependency.
-5. [ ] Budgets: `n_trials` cap, Optuna timeout, HPO subsampling, FE param bounds.
-6. [ ] Best-so-far finalization; CV-based selection; single holdout evaluation.
-7. [ ] Attempt history in the planner prompt + signature dedupe + deterministic next-candidate fallback.
-8. [ ] Retrieval: scaled features, task filter, threshold, similarity passed to the planner.
-9. [ ] Persist failed runs, decision rationale, `forced`, iteration logs, versions.
-10. [ ] Clarification validation + `problem_type` re-derivation.
+1. [x] Robust loader (`;`, encodings, numeric coercion, header check) + tests.
+2. [x] Column roles + ID drop + leakage scan + tests (churn `CustomerID` regression test).
+3. [x] Primary metric aligned across HPO, selection and report.
+4. [x] Absolute latency; remove the rolling-max dependency.
+5. [x] Budgets: `n_trials` cap, Optuna timeout, HPO subsampling, FE param bounds.
+6. [x] Best-so-far finalization; CV-based selection; single holdout evaluation.
+7. [x] Attempt history in the planner prompt + signature dedupe + deterministic next-candidate fallback.
+8. [x] Retrieval: scaled features, task filter, threshold, similarity passed to the planner.
+9. [x] Persist failed runs, decision rationale, `forced`, iteration logs, versions.
+10. [x] Clarification validation + `problem_type` re-derivation.
 
 **Validate before moving on:** the Phase 0 acceptance criteria. Then re-run the six real datasets and check that results no longer include leakage and that failures are persisted.
 
 **Next (P1), partially parallelisable:**
-- Track A: Phase 1 (engine split + evaluation protocol) → Phase 4 (registry v2 + candidates) → Phase 5 (validator).
-- Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) → Phase 3 (LangGraph port; merge after Phase 1 lands).
+- Track A: Phase 1 (engine split + evaluation protocol) ✅ done 2026-10-24 → Phase 4 (registry v2 + candidates) → Phase 5 (validator).
+- Track B, in parallel with Track A: Phase 2 (LangChain + LangSmith) ✅ done 2026-10-24 → Phase 3 (LangGraph port) ✅ done 2026-10-24.
 - Phase 6 (MLflow) after Phases 1 and 4.
 
-**Then (P2):** Phase 7 (memory v2 + benchmark) ∥ Phase 8 (doc RAG); Phase 9 (reflection v2/routing); run queue, upload limits, restart-safe run listing.
+**Then (P2):** ✅ Phase 7 (memory v2 + benchmark) ∥ ✅ Phase 8 (doc RAG); ✅ Phase 9 (reflection v2/routing); run queue, upload limits, restart-safe run listing.
 
 **Then (P3):** Phase 10 (web research, off by default); Pareto UI; parallel candidate fan-out; reranker.
 

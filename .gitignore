@@ -18,3 +18,8 @@ wheels/
 # Env
 .env
 
+# Editors
+.vscode/
+
+# Training output (CatBoost writes this next to the working directory)
+/catboost_info/

@@ -1,0 +1,129 @@
+"""Candidate generation (Phase 4, Deliverable 8.3).
+
+Each iteration executes the planner's plan plus a few deterministic
+challengers, so the final model is chosen by measurement rather than by
+whichever family the planner happened to name. Sources, in priority order:
+
+- baseline: an interpretable model (LinearModel, else DecisionTree);
+- profile:  a family suited to the data size (histogram boosting for large
+            tables, extra trees for small ones);
+- memory:   the plan of a similar past run, if one exists. It is only a
+            warm start: it is evaluated like any other candidate, and its
+            stored hyperparameters seed the search (Phase 7).
+
+Challengers never repeat an executed signature, never break a glass-box
+requirement (plan resolution substitutes those), and are capped at
+`config.MAX_CANDIDATES`. The planner's plan is always kept first.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+
+from . import config
+from .engine import plan_signature
+from .plan_resolution import PlanProfile, PlanRejection, resolve
+from .schemas import CandidatePlan, CandidateSource, PlanSpec, UnsupportedRecommendation
+
+BASELINE_FAMILIES = ("LinearModel", "DecisionTree")
+
+
+@dataclass(frozen=True)
+class WarmStart:
+    """A similar past run's plan, and the hyperparameters its model found."""
+
+    plan: PlanSpec
+    best_params: dict = field(default_factory=dict)
+
+
+def build_candidates(
+    planner_plan: PlanSpec,
+    profile: PlanProfile,
+    *,
+    iteration: int,
+    tried: set[str],
+    memory_plans: Iterable[WarmStart] = (),
+    prior_evidence: dict[str, float] | None = None,
+    max_candidates: int | None = None,
+) -> tuple[list[CandidatePlan], list[UnsupportedRecommendation]]:
+    """Return the candidates to execute (planner first) and every component
+    substitution made while building them.
+
+    `planner_plan` must already be resolved and must not be in `tried`.
+    `max_candidates` defaults to `config.MAX_CANDIDATES`, read at call time."""
+    if max_candidates is None:
+        max_candidates = config.MAX_CANDIDATES
+    cardinality = profile.categorical_cardinality
+    candidates = [CandidatePlan(source="planner", plan=planner_plan)]
+    seen = {plan_signature(planner_plan, categorical_cardinality=cardinality)} | set(tried)
+    substitutions: list[UnsupportedRecommendation] = []
+
+    for source, proposals in _proposals_by_source(planner_plan, profile, memory_plans):
+        if len(candidates) >= max_candidates:
+            break
+        # The first proposal of each source that is usable and new is taken.
+        for proposal, warm_params in proposals:
+            result = resolve(
+                proposal, profile, iteration=iteration, source=source, prior_evidence=prior_evidence
+            )
+            if isinstance(result, PlanRejection):
+                substitutions.extend(result.substitutions)
+                continue
+            substitutions.extend(result.substitutions)
+            signature = plan_signature(result.plan, categorical_cardinality=cardinality)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            # Stored hyperparameters only transfer to the same model family.
+            same_family = result.plan.model_family == proposal.model_family
+            candidates.append(
+                CandidatePlan(
+                    source=source,
+                    plan=result.plan,
+                    warm_start_params=dict(warm_params) if same_family else {},
+                )
+            )
+            break
+    return candidates, substitutions
+
+
+def _proposals_by_source(
+    planner_plan: PlanSpec, profile: PlanProfile, memory_plans: Iterable[WarmStart]
+) -> list[tuple[CandidateSource, list[tuple[PlanSpec, dict]]]]:
+    """Each proposal is (plan, warm-start params). Only memory proposals carry params."""
+    return [
+        ("baseline", [_no_params(_with_family(planner_plan, family)) for family in BASELINE_FAMILIES]),
+        ("profile", [_no_params(_with_family(planner_plan, family)) for family in _profile_families(profile)]),
+        ("memory", [_warm_start(planner_plan, past) for past in memory_plans]),
+    ]
+
+
+def _no_params(plan: PlanSpec) -> tuple[PlanSpec, dict]:
+    return plan, {}
+
+
+def _profile_families(profile: PlanProfile) -> list[str]:
+    if profile.n_rows > config.HIST_GB_MIN_ROWS:
+        return ["HistGradientBoosting"]
+    if profile.n_rows <= config.SMALL_DATA_ROWS:
+        return ["ExtraTrees"]
+    return []
+
+
+def _with_family(plan: PlanSpec, family: str) -> PlanSpec:
+    return plan.model_copy(
+        update={"model_family": family, "rationale": f"challenger: {family} from the candidate generator"}
+    )
+
+
+def _warm_start(planner_plan: PlanSpec, past: WarmStart) -> tuple[PlanSpec, dict]:
+    """A similar run's model and preprocessing, with this iteration's tuning."""
+    plan = past.plan.model_copy(
+        update={
+            "tuning": planner_plan.tuning,
+            "iteration": planner_plan.iteration,
+            "rationale": "warm start from a similar past experiment",
+        }
+    )
+    return plan, past.best_params

@@ -27,3 +27,8 @@ export async function submitClarification(runId, answer) {
   const response = await fetch(`/api/runs/${runId}/clarify`, { method: 'POST', body });
   return parseJsonResponse(response, 'Could not submit clarification');
 }
+
+export async function getConfig() {
+  const response = await fetch('/api/config');
+  return parseJsonResponse(response, 'Could not load configuration');
+}

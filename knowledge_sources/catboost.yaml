@@ -1,0 +1,6 @@
+library: catboost
+pages:
+  - url: https://catboost.ai/docs/en/concepts/parameter-tuning
+    title: "CatBoost documentation: parameter tuning"
+    component_ids: [CatBoost]
+    trust: official

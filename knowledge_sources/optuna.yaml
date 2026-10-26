@@ -1,0 +1,10 @@
+library: optuna
+pages:
+  - url: https://optuna.readthedocs.io/en/stable/reference/samplers/index.html
+    title: "Optuna documentation: samplers"
+    component_ids: [OptunaTPE, OptunaRandom]
+    trust: official
+  - url: https://optuna.readthedocs.io/en/stable/reference/pruners.html
+    title: "Optuna documentation: pruners"
+    component_ids: [OptunaTPE, OptunaRandom]
+    trust: official

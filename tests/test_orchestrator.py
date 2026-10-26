@@ -70,12 +70,6 @@ def reset_default_client():
 
 
 def test_full_loop_finalizes_after_accept(tmp_path, repo, monkeypatch):
-    monkeypatch.setattr(
-        "neuralpilot.orchestrator.MODELS_DIR", tmp_path / "models", raising=False
-    )
-    import neuralpilot.orchestrator as orch
-
-    orch.MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     scripted = ScriptedClient(
         {
@@ -122,10 +116,6 @@ def test_full_loop_finalizes_after_accept(tmp_path, repo, monkeypatch):
 
 
 def test_clarification_pauses_then_resumes(tmp_path, repo, monkeypatch):
-    import neuralpilot.orchestrator as orch
-
-    monkeypatch.setattr(orch, "MODELS_DIR", tmp_path / "models", raising=False)
-    orch.MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     scripted = ScriptedClient(
         {

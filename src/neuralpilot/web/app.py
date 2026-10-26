@@ -18,12 +18,15 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
+from ..agents.requirement_agent import InvalidClarification
+from ..engine import DatasetLoadError
 from ..orchestrator import RunState, apply_clarification, create_run, run_to_completion
 
 app = FastAPI(title="Neural Pilot")
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _LOGO_PATH = Path(__file__).resolve().parents[3] / "media" / "Logo.svg"
+_FAVICON_PATH = Path(__file__).resolve().parents[3] / "media" / "favicon.svg"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 RUNS: dict[str, RunState] = {}
@@ -57,6 +60,13 @@ def _serialize(state: RunState) -> dict:
                 "decision_rationale": log.decision_rationale,
                 "fallbacks": log.fallbacks,
                 "verification_warnings": log.verification_warnings,
+                "signature": log.signature,
+                "plan_source": log.plan_source,
+                "primary_metric": log.primary_metric,
+                "cv_mean": round(log.cv_mean, 4),
+                "cv_std": round(log.cv_std, 4),
+                "latency_ms_per_1k": round(log.latency_ms_per_1k, 3),
+                "decision_forced": log.decision_forced,
             }
             for log in state.iteration_logs
         ],
@@ -70,6 +80,24 @@ def index() -> HTMLResponse:
     return HTMLResponse((_STATIC_DIR / "index.html").read_text())
 
 
+@app.get("/api/config")
+def runtime_config() -> JSONResponse:
+    """Settings the page shows before a run exists (LLM source, split, budgets)."""
+    key = config.NVIDIA_CONFIG.api_key if config.LLM_SOURCE == "nvidia" else config.LLM_CONFIG.api_key
+    return JSONResponse(
+        {
+            "llm_source": config.LLM_SOURCE,
+            "llm_model": config.active_llm_model(),
+            "llm_key_configured": bool(key),
+            "max_iterations": config.MAX_ITERATIONS,
+            "run_budget_s": config.RUN_BUDGET_S,
+            "seed": config.SEED,
+            "holdout_fraction": config.HOLDOUT_FRACTION,
+            "cv_folds": config.CV_FOLDS,
+        }
+    )
+
+
 @app.get("/logo.svg")
 def logo(theme: str = None) -> Response:
     content = _LOGO_PATH.read_text()
@@ -80,6 +108,11 @@ def logo(theme: str = None) -> Response:
         # so the media query doesn't override it if the OS is in dark mode
         content = content.replace("fill: #FFFFFF", "fill: #121726")
     return Response(content, media_type="image/svg+xml")
+
+
+@app.get("/favicon.svg")
+def favicon() -> Response:
+    return Response(_FAVICON_PATH.read_text(), media_type="image/svg+xml")
 
 
 @app.post("/api/runs")
@@ -95,7 +128,8 @@ async def create_run_endpoint(file: UploadFile, goal: str = Form(...)) -> JSONRe
 
     try:
         state = create_run(dataset_path, file.filename, goal)
-    except Exception as exc:
+    except (DatasetLoadError, Exception) as exc:  # DatasetLoadError carries an actionable message
+        dataset_path.unlink(missing_ok=True)
         raise HTTPException(400, f"Could not read dataset: {exc}") from exc
 
     with _RUNS_LOCK:
@@ -123,10 +157,26 @@ def clarify_run(run_id: str, answer: str = Form(...)) -> JSONResponse:
     if state.status != "awaiting_clarification":
         raise HTTPException(400, f"Run is not awaiting clarification (status: {state.status}).")
 
-    apply_clarification(state, answer)
+    try:
+        apply_clarification(state, answer)
+    except InvalidClarification as exc:
+        # The run stays awaiting clarification; the user can answer again.
+        raise HTTPException(400, str(exc)) from exc
     thread = threading.Thread(target=_run_in_background, args=(run_id,), daemon=True)
     thread.start()
 
+    return JSONResponse(_serialize(state))
+
+
+@app.post("/api/runs/{run_id}/cancel")
+def cancel_run(run_id: str) -> JSONResponse:
+    """Stop after the current trial; the best attempt so far is still saved."""
+    state = RUNS.get(run_id)
+    if state is None:
+        raise HTTPException(404, "Run not found.")
+    if state.status != "running":
+        raise HTTPException(400, f"Run is not running (status: {state.status}).")
+    state.cancel_event.set()
     return JSONResponse(_serialize(state))
 
 

@@ -1,64 +1,60 @@
-"""Orchestration loop (§6) — wires the four agents + deterministic
-execution layer into the linear closed loop:
+"""Run façade over the LangGraph orchestration graph (§6, Phase 3).
 
-    plan -> verify -> execute -> validate -> reflect -> decide -> (refine/replan/stop)
+The web app and tests talk to three functions:
 
-Only one interaction point exists beyond the initial upload: a single
-clarifying question when target-column confidence is low (§7). Everything
-else resolves silently through defaults/fallbacks and is surfaced in the
-final report's "assumptions" list.
+    create_run(path, name, goal)   load the dataset, create a RunState
+    run_to_completion(state)       advance the graph until it finishes or
+                                   pauses for the clarifying question
+    apply_clarification(state, a)  validate the answer; the next
+                                   run_to_completion resumes the graph
+
+The control flow itself lives in `graph/` (nodes + routing):
+
+    understand -> [clarify] -> prepare -> retrieve_knowledge
+      -> start_iteration -> plan -> resolve_plan -> execute -> reflect -> decide
+      -> (refine/replan: start_iteration | accept/stop: finalize -> persist)
+
+`RunState` is a projection of graph state for the UI: it is refreshed
+after every node, plus live progress messages from inside long nodes.
+The graph state itself is checkpointed in SQLite (thread_id = run_id).
 """
 
 from __future__ import annotations
 
+import functools
+import logging
+import threading
+import time
 import uuid
 from dataclasses import dataclass, field
-import logging
 from pathlib import Path
-import time
 from typing import Literal
 
-import joblib
 import pandas as pd
+from langgraph.types import Command
 
-from . import config
-from .agents.decision_agent import decide
-from .agents.planning_agent import generate_plan
-from .agents.reflection_agent import reflect
-from .agents.requirement_agent import apply_clarification_answer, needs_clarification, understand_requirement
-from .execution import run_pipeline
-from .meta_features import DatasetMetaFeatures, extract_meta_features
-from .repository import ExperimentRecord, ExperimentRepository, retrieve_similar_experiments
-from .schemas import DecisionOutput, PlanSpec, ReflectionOutput, RequirementSpec, ValidationReport
-from .scoring import compute_validation, should_generate_shap
-from .verification import verify_plan
+from . import config, observability, provenance, reporting
+from .agents.requirement_agent import apply_clarification_answer
+from .engine import load_dataset
+from .engine.tracking import make_tracker
+from .graph import RunContext, compiled_graph, resources
+from .graph.routing import recursion_limit
+from .knowledge.store import open_index
+from .llm_client import LLMClient
+from .meta_features import extract_meta_features
+from .repository import ExperimentRepository
+from .schemas import AttemptSummary, BestAttempt, DecisionOutput, IterationLog, RequirementSpec
 
 logger = logging.getLogger(__name__)
 
 RunStatus = Literal["running", "awaiting_clarification", "finalized", "failed"]
 
-MAX_VERIFICATION_RETRIES = 3
-MODELS_DIR = config.RUNS_DIR / "models"
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-@dataclass
-class IterationLog:
-    iteration: int
-    plan_summary: dict
-    composite_score: float
-    accuracy_norm: float
-    latency_norm: float
-    interp_norm: float
-    weakest_block: str
-    decision: str
-    decision_rationale: str
-    fallbacks: list[dict]
-    verification_warnings: list[str]
-
 
 @dataclass
 class RunState:
+    """What the UI shows about one run. Read-only for callers, except for
+    `cancel_event` and `budget_s`/`max_iterations` before the run starts."""
+
     run_id: str
     dataset_path: Path
     dataset_name: str
@@ -71,285 +67,205 @@ class RunState:
     clarification_question: str | None = None
     requirement: RequirementSpec | None = None
     iteration: int = 0
-    previous_plan: PlanSpec | None = None
-    last_reflection: ReflectionOutput | None = None
-    last_verification_failure: str | None = None
-    score_history: list[float] = field(default_factory=list)
-    weakest_block_history: list[str] = field(default_factory=list)
     iteration_logs: list[IterationLog] = field(default_factory=list)
-    rolling_max_latency: float = 0.0
+    attempts: list[AttemptSummary] = field(default_factory=list)
+    best: BestAttempt | None = None
+    dataset_fingerprint: str | None = None
+    load_report: dict = field(default_factory=dict)
+    budget_s: float = config.RUN_BUDGET_S
+    max_iterations: int = config.MAX_ITERATIONS
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+    holdout_evaluations: int = 0
     model_path: str | None = None
-    final_shap_summary: dict | None = None
     final_metrics: dict | None = None
     final_decision: DecisionOutput | None = None
     final_report: dict | None = None
     error: str | None = None
-
-
-def _record_activity(state: RunState, task: str, tag: str = "agent") -> None:
-    elapsed = time.monotonic() - state.started_at
-    state.activity_log.append(
-        {
-            "time": f"{elapsed // 60:02.0f}:{elapsed % 60:04.1f}",
-            "tag": tag,
-            "message": task,
-        }
-    )
+    pending_answer: str | None = None  # validated clarification, sent on resume
 
 
 def create_run(dataset_path: Path, dataset_name: str, user_goal: str) -> RunState:
-    df = pd.read_csv(dataset_path)
+    """Load the dataset (raises engine.DatasetLoadError with an actionable
+    message on unreadable files) and create a run."""
+    loaded = load_dataset(dataset_path)
+    resources.remember_dataframe(loaded.fingerprint, loaded.df)
     return RunState(
         run_id=str(uuid.uuid4()),
         dataset_path=dataset_path,
         dataset_name=dataset_name,
         user_goal=user_goal,
-        df=df,
+        df=loaded.df,
+        dataset_fingerprint=loaded.fingerprint,
+        load_report=loaded.report,
     )
 
 
-def _run_requirement_understanding(state: RunState) -> None:
-    state.current_task = "Understanding requirements and inspecting dataset"
-    _record_activity(state, state.current_task, "requirement")
-    logger.info("run=%s task=%s", state.run_id, state.current_task)
-    meta_features = extract_meta_features(state.df, target_column=None)
-    spec = understand_requirement(state.user_goal, meta_features)
-
-    if needs_clarification(spec):
-        state.requirement = spec
-        state.status = "awaiting_clarification"
-        state.current_task = "Waiting for target column clarification"
-        state.clarification_question = (
-            f"I'm not fully sure which column you want to predict "
-            f"(best guess: '{spec.target_column}', confidence {spec.target_confidence:.0%}). "
-            f"Which column should be the prediction target? "
-            f"Available columns: {', '.join(state.df.columns)}"
-        )
-        return
-
-    state.requirement = spec
-    state.status = "running"
-
-
 def apply_clarification(state: RunState, answer: str) -> RunState:
+    """Validate the user's answer now, so a bad answer gets an immediate
+    error. Raises InvalidClarification (state unchanged) if `answer` is not
+    a column. The graph receives the matched column name on resume."""
     if state.requirement is None:
         raise ValueError("Cannot apply clarification before requirement understanding has run")
-    state.requirement = apply_clarification_answer(state.requirement, answer)
+    state.requirement = apply_clarification_answer(state.requirement, answer, state.df)
+    state.pending_answer = state.requirement.target_column
     state.status = "running"
     state.current_task = "Resuming after target column clarification"
     state.clarification_question = None
     return state
 
 
-def _run_one_iteration(state: RunState, repo: ExperimentRepository) -> None:
-    requirement = state.requirement
-    assert requirement is not None
-    iteration_number = state.iteration + 1
-
-    def set_task(task: str) -> None:
-        state.current_task = task
-        _record_activity(state, task, "plan" if "Plan" in task or "plan" in task else "agent")
-        logger.info("run=%s iteration=%s task=%s", state.run_id, iteration_number, task)
-
-    set_task("Finding similar experiments")
-
-    meta_features = extract_meta_features(state.df, target_column=requirement.target_column)
-    similar_experiments = retrieve_similar_experiments(meta_features, k=config.RETRIEVAL_TOP_K, repo=repo)
-
-    # --- plan -> verify, retried deterministically on verification failure ---
-    plan = None
-    verification_warnings: list[str] = []
-    for attempt in range(MAX_VERIFICATION_RETRIES):
-        set_task(f"Planning and verifying pipeline (attempt {attempt + 1}/{MAX_VERIFICATION_RETRIES})")
-        plan = generate_plan(
-            requirement,
-            meta_features,
-            similar_experiments,
-            iteration=state.iteration + 1,
-            previous_plan=state.previous_plan,
-            reflection=state.last_reflection,
-            verification_failure=state.last_verification_failure,
-        )
-        verification = verify_plan(plan, requirement, state.df)
-        if verification.passed:
-            verification_warnings = verification.warnings
-            state.last_verification_failure = None
-            break
-        logger.warning(
-            "run=%s iteration=%s task=plan verification failed failures=%s",
-            state.run_id,
-            iteration_number,
-            verification.failures,
-        )
-        state.last_verification_failure = "; ".join(verification.failures)
-        state.previous_plan = plan
-    else:
-        raise RuntimeError(
-            f"Plan repeatedly failed verification after {MAX_VERIFICATION_RETRIES} attempts: "
-            f"{state.last_verification_failure}"
-        )
-
-    # --- execute ---
-    set_task(f"Training and evaluating {plan.model_family}")
-    want_shap = should_generate_shap(requirement.constraint_weights, requirement.weight_confidence)
-
-    def report_execution_progress(task: str) -> None:
-        state.current_task = task
-        _record_activity(state, task, "execute")
-        logger.info("run=%s iteration=%s task=%s", state.run_id, iteration_number, task)
-
-    outcome = run_pipeline(
-        plan,
-        requirement,
-        state.df,
-        generate_shap=want_shap,
-        progress_callback=report_execution_progress,
-    )
-    execution_result = outcome.result
-    state.rolling_max_latency = max(state.rolling_max_latency, execution_result.latency_seconds)
-
-    # --- validate ---
-    set_task("Computing validation score")
-    validation: ValidationReport = compute_validation(
-        raw_metrics=execution_result.metrics,
-        latency_seconds=execution_result.latency_seconds,
-        rolling_max_latency=state.rolling_max_latency,
-        model_family=plan.model_family,
-        problem_type=requirement.problem_type,
-        weights=requirement.constraint_weights,
-        per_block_diagnostics=execution_result.diagnostics,
-    )
-    state.score_history.append(validation.composite_score)
-
-    # --- reflect ---
-    set_task("Reflecting on the weakest pipeline block")
-    reflection = reflect(validation)
-    state.weakest_block_history.append(reflection.weakest_block)
-
-    # --- decide (deterministic guardrails live inside decide()) ---
-    set_task("Choosing whether to refine, replan, or finish")
-    state.iteration += 1
-    decision = decide(
-        composite_score=validation.composite_score,
-        score_history=state.score_history,
-        weakest_block=reflection.weakest_block,
-        weakest_block_history=state.weakest_block_history,
-        iteration_count=state.iteration,
-        max_iterations=config.MAX_ITERATIONS,
-    )
-
-    all_fallbacks = [*execution_result.fallbacks]
-    state.iteration_logs.append(
-        IterationLog(
-            iteration=state.iteration,
-            plan_summary={
-                "model_family": plan.model_family,
-                "preprocessing": [s.component for s in plan.preprocessing],
-                "feature_engineering": [s.name for s in plan.feature_engineering],
-                "tuning": plan.tuning.component,
-            },
-            composite_score=validation.composite_score,
-            accuracy_norm=validation.accuracy_norm,
-            latency_norm=validation.latency_norm,
-            interp_norm=validation.interp_norm,
-            weakest_block=reflection.weakest_block,
-            decision=decision.decision,
-            decision_rationale=decision.rationale,
-            fallbacks=all_fallbacks,
-            verification_warnings=verification_warnings,
-        )
-    )
-
-    state.previous_plan = plan
-    state.last_reflection = reflection if decision.decision == "refine" else None
-    state.final_decision = decision
-    state.final_metrics = execution_result.metrics
-
-    if decision.decision in ("accept", "stop"):
-        set_task("Saving final model and report")
-        _finalize(state, plan, outcome, decision, repo)
-    elif decision.decision == "replan":
-        state.last_reflection = None  # replan = fresh start, not a targeted revision
-
-
-def _finalize(state: RunState, plan: PlanSpec, outcome, decision: DecisionOutput, repo: ExperimentRepository) -> None:
-    model_path = MODELS_DIR / f"{state.run_id}.joblib"
-    joblib.dump(outcome.pipeline, model_path)
-    state.model_path = str(model_path)
-    state.final_shap_summary = outcome.result.shap_summary
-
-    assumptions = list(state.requirement.assumptions)
-    for log in state.iteration_logs:
-        for fb in log.fallbacks:
-            assumptions.append(f"iteration {log.iteration}: {fb['category']} '{fb['requested']}' unsupported -> used '{fb['used']}'")
-        for w in log.verification_warnings:
-            assumptions.append(f"iteration {log.iteration}: {w}")
-
-    state.final_report = {
-        "run_id": state.run_id,
-        "dataset_name": state.dataset_name,
-        "target_column": state.requirement.target_column,
-        "problem_type": state.requirement.problem_type,
-        "model_family": plan.model_family,
-        "model_path": state.model_path,
-        "metrics": state.final_metrics,
-        "composite_score": state.score_history[-1],
-        "constraint_weights": state.requirement.constraint_weights.model_dump(),
-        "shap_summary": state.final_shap_summary,
-        "assumptions": assumptions,
-        "final_decision": decision.decision,
-        "final_decision_rationale": decision.rationale,
-        "run_history": [
-            {
-                "iteration": log.iteration,
-                "plan_summary": log.plan_summary,
-                "composite_score": log.composite_score,
-                "weakest_block": log.weakest_block,
-                "decision": log.decision,
-                "decision_rationale": log.decision_rationale,
-            }
-            for log in state.iteration_logs
-        ],
-    }
-    state.status = "finalized"
-
-    repo.save_run(
-        ExperimentRecord.new(
-            dataset_name=state.dataset_name,
-            problem_type=state.requirement.problem_type,
-            target_column=state.requirement.target_column,
-            meta_features=extract_meta_features(state.df, state.requirement.target_column).to_dict(),
-            plan=plan.model_dump(),
-            scores=state.score_history,
-            weakest_block_history=state.weakest_block_history,
-            final_decision=decision.decision,
-            final_composite_score=state.score_history[-1],
-        )
-    )
-
-
-def run_to_completion(state: RunState, repo: ExperimentRepository | None = None) -> RunState:
-    """Advance a RunState through the loop until it finalizes or needs the
-    one allowed clarifying question (§7). Safe to call again after
-    apply_clarification() to resume.
-    """
+def run_to_completion(
+    state: RunState, repo: ExperimentRepository | None = None, *, llm: LLMClient | None = None
+) -> RunState:
+    """Advance the run until it finalizes, fails, or needs the one allowed
+    clarifying question (§7). Call again after apply_clarification() to
+    resume; calling it on a finished run only refreshes the projection."""
     owns_repo = repo is None
     repo = repo or ExperimentRepository()
+    graph = compiled_graph()
+    graph_config = _graph_config(state)
+    context = RunContext(
+        repo=repo,
+        cancel_event=state.cancel_event,
+        on_progress=functools.partial(_on_progress, state),
+        llm=llm,
+        run_id=state.run_id,
+        tracker=make_tracker(_mlflow_parent(graph, graph_config)),
+        knowledge=open_index(),
+    )
     try:
-        if state.requirement is None:
-            _run_requirement_understanding(state)
-            if state.status == "awaiting_clarification":
-                return state
-
-        while state.status == "running":
-            _run_one_iteration(state, repo)
-        return state
-    except Exception as exc:
-        state.status = "failed"
-        state.current_task = "Run failed"
-        state.error = str(exc)
-        logger.exception("run=%s failed", state.run_id)
-        return state
+        should_run, graph_input = _next_input(graph, graph_config, state)
+        if should_run:
+            with observability.run_tracing():
+                # durability="sync": a node's result is on disk before the next
+                # node starts, so a crash never loses a finished attempt.
+                for values in graph.stream(
+                    graph_input, graph_config, context=context, stream_mode="values", durability="sync"
+                ):
+                    _project(values, state)
+        _sync_pause(graph, graph_config, state)
+    except Exception as exc:  # the graph could not route to `fail` itself
+        _fail_outside_graph(state, exc, repo, graph, graph_config)
     finally:
         if owns_repo:
             repo.close()
+    return state
+
+
+# --- graph plumbing ----------------------------------------------------------
+
+
+def _mlflow_parent(graph, graph_config: dict) -> str | None:
+    """The MLflow parent run of an earlier invocation of this run, if any,
+    so a resumed run keeps logging into the same parent."""
+    values = graph.get_state(graph_config).values
+    return values.get("mlflow_run_id") if values else None
+
+
+def _graph_config(state: RunState) -> dict:
+    return {
+        "configurable": {"thread_id": state.run_id},
+        "recursion_limit": recursion_limit(state.max_iterations),
+        "run_name": "neuralpilot_run",
+        "tags": ["neuralpilot"],
+        "metadata": {
+            "run_id": state.run_id,
+            "dataset_fingerprint": state.dataset_fingerprint,
+            "code_version": provenance.code_version(),
+            "llm_backend": config.LLM_BACKEND,
+            "llm_source": config.LLM_SOURCE,
+            "llm_model": config.active_llm_model(),
+        },
+    }
+
+
+def _initial_input(state: RunState) -> dict:
+    return {
+        "run_id": state.run_id,
+        "dataset_path": str(state.dataset_path),
+        "dataset_name": state.dataset_name,
+        "dataset_fingerprint": state.dataset_fingerprint,
+        "load_report": state.load_report,
+        "user_goal": state.user_goal,
+        "seed": config.SEED,
+        "budget_s": state.budget_s,
+        "max_iterations": state.max_iterations,
+        "status": "running",
+        "iteration": 0,
+        "clarification_rounds": 0,
+        "holdout_evaluations": 0,
+    }
+
+
+def _next_input(graph, graph_config: dict, state: RunState) -> tuple[bool, object]:
+    """(should_run, input) for this call:
+    - new run: the initial state;
+    - paused with an answer waiting: Command(resume=answer);
+    - stopped mid-way (crash, restart): None, i.e. continue from the last checkpoint;
+    - finished, or paused with no answer yet: nothing to run."""
+    snapshot = graph.get_state(graph_config)
+    if not snapshot.values:
+        return True, _initial_input(state)
+    _project(snapshot.values, state)
+    if snapshot.interrupts:
+        if state.pending_answer is None:
+            return False, None
+        answer, state.pending_answer = state.pending_answer, None
+        state.status = "running"
+        return True, Command(resume=answer)
+    return bool(snapshot.next), None
+
+
+def _sync_pause(graph, graph_config: dict, state: RunState) -> None:
+    """If the graph is paused at the clarifying question, show it."""
+    snapshot = graph.get_state(graph_config)
+    if not snapshot.interrupts:
+        return
+    payload = snapshot.interrupts[0].value
+    state.status = "awaiting_clarification"
+    state.clarification_question = payload.get("question") if isinstance(payload, dict) else str(payload)
+    state.current_task = "Waiting for target column clarification"
+
+
+def _project(values: dict, state: RunState) -> None:
+    """Copy the UI-relevant parts of graph state onto the RunState."""
+    state.status = values.get("status", state.status)
+    state.requirement = values.get("requirement") or state.requirement
+    state.clarification_question = values.get("clarification_question")
+    state.iteration = values.get("iteration", 0)
+    state.iteration_logs = list(values.get("iteration_logs") or [])
+    state.attempts = list(values.get("attempts") or [])
+    state.best = values.get("best")
+    state.final_decision = values.get("decision")
+    state.holdout_evaluations = values.get("holdout_evaluations", 0)
+    state.model_path = values.get("model_path")
+    state.final_metrics = values.get("final_metrics")
+    state.final_report = values.get("final_report")
+    state.error = values.get("error")
+    if state.status == "failed":
+        state.current_task = "Run failed"
+
+
+def _on_progress(state: RunState, task: str, tag: str) -> None:
+    state.current_task = task
+    elapsed = time.monotonic() - state.started_at
+    state.activity_log.append(
+        {"time": f"{elapsed // 60:02.0f}:{elapsed % 60:04.1f}", "tag": tag, "message": task}
+    )
+
+
+def _fail_outside_graph(state: RunState, exc: Exception, repo: ExperimentRepository, graph, graph_config) -> None:
+    """Last resort for errors the graph could not route to its `fail` node
+    (e.g. the recursion limit). The run is still persisted as failed."""
+    logger.exception("run=%s failed outside the graph", state.run_id)
+    state.status = "failed"
+    state.current_task = "Run failed"
+    state.error = str(exc) or type(exc).__name__
+    try:
+        values = dict(graph.get_state(graph_config).values)
+        values.update(run_id=state.run_id, dataset_name=state.dataset_name, error=state.error)
+        target = state.requirement.target_column if state.requirement else None
+        meta = extract_meta_features(state.df, target if target in state.df.columns else None).to_dict()
+        repo.save_run(reporting.failed_record(values, meta))
+    except Exception:
+        logger.exception("run=%s could not persist failure record", state.run_id)

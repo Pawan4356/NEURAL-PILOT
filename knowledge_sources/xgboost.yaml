@@ -1,0 +1,6 @@
+library: xgboost
+pages:
+  - url: https://xgboost.readthedocs.io/en/stable/parameter.html
+    title: "XGBoost documentation: parameters"
+    component_ids: [XGBoost]
+    trust: official
