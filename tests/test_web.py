@@ -53,6 +53,31 @@ def test_semicolon_csv_is_accepted(client):
     assert state.df.shape[1] == 5
 
 
+def test_chosen_iteration_cap_is_applied_to_the_run(client):
+    with (FIXTURES / "semicolon_decimal_comma.csv").open("rb") as f:
+        response = client.post(
+            "/api/runs",
+            files={"file": ("s.csv", f, "text/csv")},
+            data={"goal": "predict grade", "max_iterations": "8"},
+        )
+    assert response.status_code == 200
+    assert response.json()["max_iterations"] == 8
+    assert web_app.RUNS[response.json()["run_id"]].max_iterations == 8
+
+
+@pytest.mark.parametrize("value", [config.MAX_ITERATIONS_MIN - 1, config.MAX_ITERATIONS_MAX + 1])
+def test_iteration_cap_outside_the_range_is_refused(client, value):
+    with (FIXTURES / "semicolon_decimal_comma.csv").open("rb") as f:
+        response = client.post(
+            "/api/runs",
+            files={"file": ("s.csv", f, "text/csv")},
+            data={"goal": "predict grade", "max_iterations": str(value)},
+        )
+    assert response.status_code == 400
+    assert "Iterations must be between" in response.json()["detail"]
+    assert not web_app.RUNS
+
+
 def test_invalid_clarification_returns_400_and_keeps_waiting(client, tmp_path):
     from neuralpilot.orchestrator import RunState
     from neuralpilot.schemas import ConstraintWeights, RequirementSpec
@@ -171,9 +196,27 @@ def test_finished_run_is_served_from_the_experiment_store(client, tmp_path):
 
     body = client.get("/api/runs/done1").json()
     assert body["status"] == "finalized"
+    assert body["max_iterations"] == config.MAX_ITERATIONS  # saved before the cap was per-run
     assert body["final_report"] == {"target_column": "y", "feasible": True}
     assert body["activity_log"] == activity
     assert client.get("/api/runs").json()[0]["status"] == "finalized"
+
+
+def test_finished_run_reports_the_cap_it_ran_with(client):
+    from neuralpilot.memory.store import ExperimentRecord
+    from neuralpilot.repository import ExperimentRepository
+
+    record = ExperimentRecord.new(
+        run_id="done8", dataset_name="churn.csv", problem_type="classification", target_column="y",
+        meta_features={}, plan={}, scores=[0.9], weakest_block_history=[], final_decision="accept",
+        final_composite_score=0.9, final_report={"reproducibility": {"max_iterations": 8}},
+    )
+    repo = ExperimentRepository(db_path=config.DB_PATH)
+    repo.save_run(record)
+    repo.close()
+    _own("done8")
+
+    assert client.get("/api/runs/done8").json()["max_iterations"] == 8
 
 
 def test_run_lost_in_a_restart_is_listed_as_interrupted(client):

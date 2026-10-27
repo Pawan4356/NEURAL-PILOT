@@ -393,14 +393,19 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .cols .more{background:none;color:var(--ink-3)}
 .start-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
-/* Time limit stepper, left of the Start run button */
-.budget{display:flex;align-items:center;gap:12px}
-.budget-l{font-weight:600;font-size:14px}
-.stepper{display:inline-flex;align-items:center;height:44px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--paper);overflow:hidden}
-.stepper button{width:40px;height:100%;border:0;background:none;color:var(--ink);font-size:18px;line-height:1;transition:background-color var(--t-fast) var(--ease)}
-.stepper button:hover:not(:disabled){background:var(--sunk)}
-.stepper button:disabled{color:var(--ink-3);cursor:not-allowed}
-.stepper output{min-width:96px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;border-inline:1px solid var(--line);line-height:42px}
+/* Time limit and iteration steppers, left of the Start run button */
+.run-limits{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.budget{display:inline-flex;align-items:center;gap:10px;height:44px;padding:0 6px 0 14px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--sunk);transition:border-color var(--t-fast) var(--ease)}
+.budget:hover,.budget:focus-within{border-color:color-mix(in srgb,var(--blue) 45%,var(--line))}
+.budget-l{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.stepper{display:inline-flex;align-items:center;gap:2px}
+.stepper button{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:var(--r-tag);background:none;color:var(--ink-2);font-size:16px;line-height:1;transition:background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.stepper button:hover:not(:disabled){background:var(--sky);color:var(--blue-text)}
+.stepper button:active:not(:disabled){transform:scale(.92)}
+.stepper button:disabled{opacity:.35;cursor:not-allowed}
+.stepper button:focus-visible{border-radius:var(--r-tag)}
+.stepper output{min-width:72px;text-align:center;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.stepper output.is-short{min-width:24px}
 
 /* Start run: cartoon squash-and-stretch launch */
 .start-btn{position:relative;overflow:visible}
@@ -606,6 +611,7 @@ dialog .df{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;bord
   .head-actions{margin-left:0;width:100%}
   .head-actions .btn{flex:1}
   .btn-block-sm{width:100%}
+  .run-limits{width:100%;gap:8px}
   .budget{width:100%;justify-content:space-between}
   .ev{grid-template-columns:30px 14px minmax(0,1fr);column-gap:10px}
   .ev::before{left:calc(30px + 10px + 6.5px)}

@@ -45,6 +45,8 @@ def collect_assumptions(state: dict) -> list[str]:
 def reproducibility_block(state: dict) -> dict:
     return {
         "seed": state.get("seed"),
+        "max_iterations": state.get("max_iterations"),
+        "budget_s": state.get("budget_s"),
         "code_version": provenance.code_version(),
         "lib_versions": provenance.lib_versions(),
         "dataset_fingerprint": state.get("dataset_fingerprint"),

@@ -112,6 +112,10 @@ RUN_BUDGET_S = _env_float("NEURALPILOT_RUN_BUDGET_S", 900.0)  # wall-clock budge
 # Range the user may pick for a run's time limit on the new-run form.
 RUN_BUDGET_MIN_S = 15 * 60.0
 RUN_BUDGET_MAX_S = 120 * 60.0
+# Range the user may pick for a run's iteration cap. Iteration 1 never accepts,
+# so fewer than 2 cannot finish on its own; above 10 the time limit ends the run first.
+MAX_ITERATIONS_MIN = 2
+MAX_ITERATIONS_MAX = 10
 
 # --- Dataset loading limits ---
 MAX_ROWS = _env_int("NEURALPILOT_MAX_ROWS", 2_000_000)

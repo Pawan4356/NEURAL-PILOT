@@ -131,7 +131,7 @@ def _serialize(state: RunState) -> dict:
         "activity_log": state.activity_log,
         "clarification_question": state.clarification_question,
         "iteration": state.iteration,
-        "max_iterations": config.MAX_ITERATIONS,
+        "max_iterations": state.max_iterations,
         "iteration_logs": [
             {
                 "iteration": log.iteration,
@@ -177,6 +177,8 @@ def runtime_config() -> JSONResponse:
             "llm_model": config.active_llm_model(),
             "llm_key_configured": bool(key),
             "max_iterations": config.MAX_ITERATIONS,
+            "max_iterations_min": config.MAX_ITERATIONS_MIN,
+            "max_iterations_max": config.MAX_ITERATIONS_MAX,
             "run_budget_s": config.RUN_BUDGET_S,
             "run_budget_min_s": config.RUN_BUDGET_MIN_S,
             "run_budget_max_s": config.RUN_BUDGET_MAX_S,
@@ -222,6 +224,7 @@ async def create_run_endpoint(
     file: UploadFile,
     goal: str = Form(...),
     budget_min: float = Form(config.RUN_BUDGET_MIN_S / 60),
+    max_iterations: int = Form(config.MAX_ITERATIONS),
     user: User = Depends(current_user),
     accounts: AccountStore = Depends(get_accounts),
 ) -> JSONResponse:
@@ -236,6 +239,11 @@ async def create_run_endpoint(
             f"Time limit must be between {config.RUN_BUDGET_MIN_S / 60:g} and "
             f"{config.RUN_BUDGET_MAX_S / 60:g} minutes.",
         )
+    if not config.MAX_ITERATIONS_MIN <= max_iterations <= config.MAX_ITERATIONS_MAX:
+        raise HTTPException(
+            400,
+            f"Iterations must be between {config.MAX_ITERATIONS_MIN} and {config.MAX_ITERATIONS_MAX}.",
+        )
 
     dataset_path = config.DATA_DIR / f"{uuid.uuid4()}_{file.filename}"
     with dataset_path.open("wb") as out:
@@ -247,6 +255,7 @@ async def create_run_endpoint(
         dataset_path.unlink(missing_ok=True)
         raise HTTPException(400, f"Could not read dataset: {exc}") from exc
     state.budget_s = budget_s
+    state.max_iterations = max_iterations
 
     # Ownership is recorded before the run starts, so a run interrupted by a restart
     # still shows up in its owner's list.

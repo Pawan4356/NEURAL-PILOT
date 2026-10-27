@@ -3,7 +3,7 @@ import { initAuth } from './auth.js';
 import { initHistory, refreshRuns } from './history.js';
 import { renderConfig } from './renderers.js';
 import { initReport } from './report.js';
-import { initRuns, openRun } from './runs.js';
+import { initRuns, openRun, syncFormLimits } from './runs.js';
 import { initShell } from './shell.js';
 import { initTheme } from './theme.js';
 import { $ } from './dom.js';
@@ -40,6 +40,11 @@ try {
   throw error;
 }
 
-getConfig().then(renderConfig).catch(() => {
-  $('env-model').textContent = 'unavailable';
-});
+getConfig()
+  .then((cfg) => {
+    renderConfig(cfg);
+    syncFormLimits();
+  })
+  .catch(() => {
+    $('env-model').textContent = 'unavailable';
+  });
