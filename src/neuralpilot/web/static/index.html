@@ -373,12 +373,42 @@
                                 ><span id="new-error-t"></span>
                             </div>
                             <div class="start-row" style="margin-top: 4px">
+                                <div class="budget">
+                                    <span class="budget-l" id="budget-label"
+                                        >Time limit</span
+                                    >
+                                    <div
+                                        class="stepper"
+                                        role="group"
+                                        aria-labelledby="budget-label"
+                                    >
+                                        <button
+                                            type="button"
+                                            id="budget-dec"
+                                            aria-label="Less time"
+                                        >
+                                            &minus;
+                                        </button>
+                                        <output
+                                            id="budget-val"
+                                            aria-live="polite"
+                                            >15 min</output
+                                        >
+                                        <button
+                                            type="button"
+                                            id="budget-inc"
+                                            aria-label="More time"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
+                                </div>
                                 <button
-                                    class="btn btn-primary btn-block-sm"
+                                    class="btn btn-primary btn-block-sm start-btn"
                                     id="start-btn"
                                     type="submit"
                                 >
-                                    Start run
+                                    <span class="start-t">Start run</span>
                                 </button>
                             </div>
                         </form>
@@ -678,6 +708,7 @@
                                         <tr>
                                             <th>#</th>
                                             <th>Plan</th>
+                                            <th>Challengers</th>
                                             <th>Weakest block</th>
                                             <th>Score</th>
                                             <th>Decision</th>
@@ -711,13 +742,14 @@
                         >
                             <div class="card-head">
                                 <h2 class="h2">What drives the prediction</h2>
-                                <span class="small"
+                                <span class="small" id="shap-method"
                                     >Mean absolute SHAP value</span
                                 >
                             </div>
                             <div class="shap" id="shap-list"></div>
                             <p class="hint" id="no-shap" hidden>
-                                No SHAP summary was generated for this run.
+                                Feature importance could not be computed for
+                                this run.
                             </p>
                         </div>
 

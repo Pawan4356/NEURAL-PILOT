@@ -146,6 +146,7 @@ def build_final_report(
                 "decision": log.decision,
                 "decision_rationale": log.decision_rationale,
                 "decision_forced": log.decision_forced,
+                "candidates": log.candidates,
             }
             for log in state.get("iteration_logs") or []
         ],

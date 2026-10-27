@@ -64,6 +64,25 @@ function renderHero(report, primary, holdoutScore) {
   $('path-report').innerHTML = pathChart({ scores, max: maxIterations, animate: true });
 }
 
+/** The challengers measured beside an iteration's planner plan. Skipped and failed
+ *  ones are listed too, so a missing model is explained rather than silent. */
+function challengerCell(row, best) {
+  const extra = (row.candidates || []).filter((c) => c.source !== 'planner');
+  if (!extra.length) return '<span class="src">none</span>';
+  return extra
+    .map((c) => {
+      const isWin = c.signature && c.signature === best;
+      const result =
+        c.status === 'ok' ? Number(c.composite_score).toFixed(3) : c.status === 'failed' ? 'failed' : 'skipped';
+      return (
+        `<div class="chal${isWin ? ' is-win' : ''}" title="${escapeHtml(c.reason || '')}">` +
+        `<span class="fam">${escapeHtml(c.model_family || '-')}</span>` +
+        `<span class="num">${escapeHtml(result)}</span></div>`
+      );
+    })
+    .join('');
+}
+
 function renderHistory(report) {
   const history = report.run_history || [];
   const best = report.best_signature;
@@ -79,6 +98,7 @@ function renderHistory(report) {
         `<td class="num">${escapeHtml(row.iteration)}${isBest ? ' <span class="pill">best</span>' : ''}</td>` +
         `<td><span class="fam">${escapeHtml(plan.model_family || '-')}</span>` +
         `<span class="src">${escapeHtml(row.plan_source || '')}</span></td>` +
+        `<td>${challengerCell(row, best)}</td>` +
         `<td>${escapeHtml(row.weakest_block || '-')}</td>` +
         `<td class="num">${Number(row.composite_score).toFixed(3)}</td>` +
         `<td><span class="verdict ${verdict}">${escapeHtml(decision)}` +
@@ -114,6 +134,8 @@ function renderHistory(report) {
 
 function renderShap(report) {
   const features = report.shap_summary?.top_features || [];
+  $('shap-method').textContent =
+    report.shap_summary?.method === 'model_importance' ? "Model's own feature importance" : 'Mean absolute SHAP value';
   if (!features.length) {
     $('shap-list').innerHTML = '';
     show('no-shap');

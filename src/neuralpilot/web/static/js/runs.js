@@ -3,7 +3,7 @@ import { $, escapeHtml, hide, show } from './dom.js';
 import { refreshRuns, setCurrentRun } from './history.js';
 import { renderRun } from './renderers.js';
 import { resetRunState, state, stopPolling } from './state.js';
-import { setCrumb, showScreen } from './shell.js';
+import { closeRail, setCrumb, showScreen } from './shell.js';
 
 const POLL_MS = 900;
 // A run in one of these states will not change on its own, so polling stops.
@@ -37,6 +37,28 @@ function takeFile(file) {
   $('drop-s').textContent = `${formatSize(file.size)}, ready to upload`;
   hide('new-error');
   previewColumns(file);
+  updateStartEnabled();
+}
+
+/** Start run needs both a dataset and a goal. */
+function updateStartEnabled() {
+  $('start-btn').disabled = !$('file').files[0] || !$('goal-input').value.trim();
+}
+
+/** Empty the new-run form: no dataset, no goal, default time limit. */
+function resetNewForm() {
+  $('new-form').reset();
+  $('file').value = '';
+  $('drop').classList.remove('is-filled');
+  $('drop-t').textContent = 'Drop a CSV here, or browse';
+  $('drop-s').textContent = 'One file, with a header row';
+  $('cols').innerHTML = '';
+  hide('cols');
+  hide('new-error');
+  document.querySelectorAll('#suggest button').forEach((button) => button.setAttribute('aria-pressed', 'false'));
+  budgetMin = budgetBounds()[0];
+  stepBudget(0);
+  updateStartEnabled();
 }
 
 function setDropzoneDragging(on) {
@@ -58,6 +80,59 @@ function showNewError(message) {
   show('new-error');
 }
 
+// Time limit, in minutes. The bounds come from /api/config once it has loaded.
+const BUDGET_STEP_MIN = 15;
+let budgetMin = 15;
+
+function budgetBounds() {
+  const cfg = state.config || {};
+  return [(cfg.run_budget_min_s ?? 900) / 60, (cfg.run_budget_max_s ?? 7200) / 60];
+}
+
+function formatMinutes(total) {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+function stepBudget(direction) {
+  const [lo, hi] = budgetBounds();
+  budgetMin = Math.min(hi, Math.max(lo, budgetMin + direction * BUDGET_STEP_MIN));
+  $('budget-val').textContent = formatMinutes(budgetMin);
+  $('budget-dec').disabled = budgetMin <= lo;
+  $('budget-inc').disabled = budgetMin >= hi;
+}
+
+/** A short, cartoonish launch: the button squashes and springs, then puffs and
+ *  stars burst out of it and a rocket shoots off. Purely decorative. */
+function playLaunch(button) {
+  button.classList.remove('is-launching');
+  void button.offsetWidth; // restart the animation on a quick second click
+  button.classList.add('is-launching');
+  const bits = ['✦', '★', '', '', '✦', '', '★', ''];
+  bits.forEach((glyph, i) => {
+    const bit = document.createElement('span');
+    bit.className = glyph ? 'launch-bit is-star' : 'launch-bit';
+    bit.textContent = glyph;
+    const angle = (i / bits.length) * Math.PI * 2 + Math.random() * 0.4;
+    const dist = 46 + Math.random() * 28;
+    bit.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+    bit.style.setProperty('--dy', `${Math.sin(angle) * dist * 0.7}px`);
+    bit.style.setProperty('--rot', `${Math.round(Math.random() * 360)}deg`);
+    button.appendChild(bit);
+  });
+  const rocket = document.createElement('span');
+  rocket.className = 'launch-rocket';
+  rocket.textContent = '🚀';
+  rocket.setAttribute('aria-hidden', 'true');
+  button.appendChild(rocket);
+  setTimeout(() => {
+    button.querySelectorAll('.launch-bit, .launch-rocket').forEach((el) => el.remove());
+    button.classList.remove('is-launching');
+  }, 1000);
+}
+
 async function startRun(event) {
   event.preventDefault();
   const file = $('file').files[0];
@@ -67,15 +142,20 @@ async function startRun(event) {
 
   hide('new-error');
   $('start-btn').disabled = true;
+  playLaunch($('start-btn'));
   try {
-    const run = await createRun(file, goal);
+    // Let the launch play out before the screen changes.
+    const [run] = await Promise.all([
+      createRun(file, goal, budgetMin),
+      new Promise((resolve) => setTimeout(resolve, 650)),
+    ]);
     openRunScreen(run.run_id, goal);
     startPolling();
     refreshRuns();
   } catch (error) {
     showNewError(error.message);
   } finally {
-    $('start-btn').disabled = false;
+    updateStartEnabled();
   }
 }
 
@@ -114,8 +194,14 @@ export function openRun(run) {
   startPolling();
 }
 
-/** Back to a blank form, dropping whatever run was open. */
+/** Back to a blank form, dropping whatever run was open. Already on the form,
+ *  this keeps what has been entered so far. */
 export function startNewRun() {
+  if (!document.querySelector('[data-screen="new"]').hidden) {
+    closeRail();
+    return;
+  }
+  resetNewForm();
   stopPolling();
   resetRunState();
   clearRunScreen();
@@ -233,6 +319,10 @@ export function initRuns() {
   document.querySelectorAll('#suggest button').forEach((button) => {
     button.onclick = () => toggleSuggestion(button);
   });
+  $('budget-dec').onclick = () => stepBudget(-1);
+  $('budget-inc').onclick = () => stepBudget(1);
+  $('goal-input').addEventListener('input', updateStartEnabled);
+  resetNewForm();
   $('new-form').onsubmit = startRun;
   $('ask-form').onsubmit = submitAnswer;
   $('stop-btn').onclick = stopRun;
