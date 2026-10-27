@@ -18,6 +18,7 @@ wheels/
 
 # Env
 .env
+.claude
 
 # Editors
 .vscode/

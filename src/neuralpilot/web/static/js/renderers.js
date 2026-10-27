@@ -69,6 +69,9 @@ export function renderConfig(cfg) {
 export function renderActivity(data) {
   const activity = data.activity_log || [];
   const feed = $('feed');
+  // Follow new lines only while the reader is already at the bottom, so
+  // scrolling up to read earlier steps is not undone by the next poll.
+  const followTail = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 24;
 
   const shown = activity[state.seenActivity - 1];
   if (shown?.progress && feed.lastElementChild) {
@@ -83,7 +86,7 @@ export function renderActivity(data) {
   });
 
   state.seenActivity = activity.length;
-  feed.scrollTop = feed.scrollHeight;
+  if (followTail) feed.scrollTop = feed.scrollHeight;
 }
 
 export function renderRun(data) {
