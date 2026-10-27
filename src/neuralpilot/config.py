@@ -218,7 +218,7 @@ class LLMConfig:
         )
     )
     provider: str = field(default_factory=lambda: os.environ.get("HF_PROVIDER", "auto"))
-    max_tokens: int = 1500
+    max_tokens: int = 5000
     temperature: float = 0.2
     timeout: float = 90.0
 
@@ -236,7 +236,7 @@ class NvidiaConfig:
     # None uses the hosted endpoint (https://integrate.api.nvidia.com/v1);
     # set it to reach a self-hosted NIM, e.g. http://localhost:8000/v1.
     base_url: str | None = field(default_factory=lambda: os.environ.get("NVIDIA_BASE_URL") or None)
-    max_tokens: int = 1500
+    max_tokens: int = 5000
     temperature: float = 0.2
     timeout: float = 90.0
 
