@@ -253,6 +253,20 @@ function dataSection(report) {
   return block.join('\n');
 }
 
+/** Challengers beside an iteration's planner plan, e.g. "LinearModel 0.812 *; ExtraTrees skipped". */
+function challengerText(row, best) {
+  const extra = (row.candidates || []).filter((c) => c.source !== 'planner');
+  if (!extra.length) return 'none';
+  return extra
+    .map((c) => {
+      const result =
+        c.status === 'ok' ? Number(c.composite_score).toFixed(3) : c.status === 'failed' ? 'failed' : 'skipped';
+      const mark = c.signature && c.signature === best ? ' *' : '';
+      return `${c.model_family || '-'} ${result}${mark}`;
+    })
+    .join('; ');
+}
+
 function iterationsSection(report) {
   const history = report.run_history || [];
   if (!history.length) return '';
@@ -262,6 +276,7 @@ function iterationsSection(report) {
     `${row.iteration}${row.signature === best ? ' *' : ''}`,
     (row.plan_summary || {}).model_family || '-',
     row.plan_source || '',
+    challengerText(row, best),
     row.weakest_block || '-',
     Number(row.composite_score).toFixed(3),
     `${row.decision || '-'}${row.decision_forced ? ' (forced)' : ''}`,
@@ -269,7 +284,7 @@ function iterationsSection(report) {
 
   const block = [
     heading('ITERATIONS'),
-    table(['#', 'Model', 'Source', 'Weakest block', 'Score', 'Decision'], rows),
+    table(['#', 'Model', 'Source', 'Challengers', 'Weakest block', 'Score', 'Decision'], rows),
   ];
 
   // The table lists one row per iteration (the planner's plan). Challengers are
@@ -299,7 +314,11 @@ function featuresSection(report) {
     return [heading('TOP FEATURES'), `${INDENT}Not available for this run.`].join('\n');
   }
   return [
-    `${heading('TOP FEATURES')}\n${INDENT}By mean |SHAP|, on training rows.`,
+    `${heading('TOP FEATURES')}\n${INDENT}${
+      report.shap_summary?.method === 'model_importance'
+        ? "By the model's own feature importance (SHAP could not be computed)."
+        : 'By mean |SHAP|, on training rows.'
+    }`,
     fields(
       features.map((feature) => [featureName(feature.feature), Number(feature.mean_abs_shap).toFixed(3)]),
     ),

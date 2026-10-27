@@ -46,10 +46,11 @@ export async function listRuns() {
   return parseJsonResponse(response, 'Could not load your runs');
 }
 
-export async function createRun(file, goal) {
+export async function createRun(file, goal, budgetMin) {
   const body = new FormData();
   body.append('file', file);
   body.append('goal', goal);
+  body.append('budget_min', String(budgetMin));
 
   const response = await fetch('/api/runs', { method: 'POST', body });
   return parseJsonResponse(response, 'Failed to start run');

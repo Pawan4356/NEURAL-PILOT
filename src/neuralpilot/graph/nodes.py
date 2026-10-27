@@ -55,7 +55,7 @@ from ..schemas import (
     RequirementSpec,
     ValidationReport,
 )
-from ..scoring import compute_validation, should_generate_shap
+from ..scoring import compute_validation
 from ..selection import is_better, next_untried_plan, plan_summary
 from ..validation import evaluate_attempt, requires_glass_box
 from ..verification import verify_plan
@@ -578,6 +578,7 @@ def _candidate_entry(
         "status": status,
         "cv_mean": summary.cv_mean if summary else None,
         "cv_std": summary.cv_std if summary else None,
+        "composite_score": summary.composite_score if summary else None,
         "feasible": summary.feasible if summary else None,
         "reason": reason,
     }
@@ -689,16 +690,14 @@ def finalize(state: NPState, runtime: Runtime[RunContext]) -> dict:
     ctx = runtime.context
     ctx.report("Saving final model and report")
     run_id = state["run_id"]
-    requirement = state["requirement"]
     prepared = resources.prepared_data(state)
     pipeline = resources.best_pipeline(run_id)
 
     holdout_metrics = holdout_evaluate(pipeline, prepared)
 
-    shap = None
-    if should_generate_shap(requirement.constraint_weights, requirement.weight_confidence):
-        ctx.report("Generating SHAP feature importance", "execute")
-        shap, _ = shap_summary(pipeline, prepared.X_train, prepared.X_train, seed=prepared.seed)
+    # Top features are part of every report, whatever the goal asked for.
+    ctx.report("Generating SHAP feature importance", "execute")
+    shap, _ = shap_summary(pipeline, prepared.X_train, prepared.X_train, seed=prepared.seed)
 
     model_path = str(resources.model_path(run_id))
     report = reporting.build_final_report(

@@ -149,6 +149,7 @@ def _serialize(state: RunState) -> dict:
                 "cv_std": round(log.cv_std, 4),
                 "latency_ms_per_1k": round(log.latency_ms_per_1k, 3),
                 "decision_forced": log.decision_forced,
+                "candidates": log.candidates,
             }
             for log in state.iteration_logs
         ],
@@ -177,6 +178,8 @@ def runtime_config() -> JSONResponse:
             "llm_key_configured": bool(key),
             "max_iterations": config.MAX_ITERATIONS,
             "run_budget_s": config.RUN_BUDGET_S,
+            "run_budget_min_s": config.RUN_BUDGET_MIN_S,
+            "run_budget_max_s": config.RUN_BUDGET_MAX_S,
             "seed": config.SEED,
             "holdout_fraction": config.HOLDOUT_FRACTION,
             "cv_folds": config.CV_FOLDS,
@@ -218,6 +221,7 @@ def list_runs(user: User = Depends(current_user), accounts: AccountStore = Depen
 async def create_run_endpoint(
     file: UploadFile,
     goal: str = Form(...),
+    budget_min: float = Form(config.RUN_BUDGET_MIN_S / 60),
     user: User = Depends(current_user),
     accounts: AccountStore = Depends(get_accounts),
 ) -> JSONResponse:
@@ -225,6 +229,13 @@ async def create_run_endpoint(
         raise HTTPException(400, "Please upload a .csv file.")
     if not goal.strip():
         raise HTTPException(400, "Please describe what you want to predict.")
+    budget_s = budget_min * 60
+    if not config.RUN_BUDGET_MIN_S <= budget_s <= config.RUN_BUDGET_MAX_S:
+        raise HTTPException(
+            400,
+            f"Time limit must be between {config.RUN_BUDGET_MIN_S / 60:g} and "
+            f"{config.RUN_BUDGET_MAX_S / 60:g} minutes.",
+        )
 
     dataset_path = config.DATA_DIR / f"{uuid.uuid4()}_{file.filename}"
     with dataset_path.open("wb") as out:
@@ -235,6 +246,7 @@ async def create_run_endpoint(
     except (DatasetLoadError, Exception) as exc:  # DatasetLoadError carries an actionable message
         dataset_path.unlink(missing_ok=True)
         raise HTTPException(400, f"Could not read dataset: {exc}") from exc
+    state.budget_s = budget_s
 
     # Ownership is recorded before the run starts, so a run interrupted by a restart
     # still shows up in its owner's list.

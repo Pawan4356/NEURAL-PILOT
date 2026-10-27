@@ -256,7 +256,22 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .icon-btn{width:36px;height:36px;border-radius:10px;border:0;background:none;color:var(--ink-2);display:grid;place-items:center;flex:none;transition:background-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .icon-btn:hover{background:var(--sunk);color:var(--ink)}
 
-.main{min-width:0;display:flex;flex-direction:column}
+.main{min-width:0;display:flex;flex-direction:column;position:relative;isolation:isolate}
+
+/* New-run hero: a faint grid that fades out from the top centre and drifts slowly */
+.main:has([data-screen="new"]:not([hidden]))::before{
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  --cell:44px;
+  background-image:
+    linear-gradient(to right,color-mix(in srgb,var(--ink-3) 30%,transparent) 1px,transparent 1px),
+    linear-gradient(to bottom,color-mix(in srgb,var(--ink-3) 30%,transparent) 1px,transparent 1px);
+  background-size:var(--cell) var(--cell);
+  background-position:center top;
+  -webkit-mask-image:radial-gradient(ellipse 85% 80% at 50% 30%,#000 35%,transparent 80%);
+  mask-image:radial-gradient(ellipse 85% 80% at 50% 30%,#000 35%,transparent 80%);
+  animation:np-grid-drift 18s linear infinite;
+}
+@keyframes np-grid-drift{from{background-position:center 0}to{background-position:center var(--cell)}}
 .bar{display:flex;align-items:center;gap:12px;padding:16px clamp(20px,4vw,48px);min-height:68px}
 .crumb{font-size:14px;color:var(--ink-3);display:flex;gap:8px;align-items:center;min-width:0}
 .crumb b{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -376,7 +391,48 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .cols{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .cols code{padding:3px 8px;border-radius:var(--r-tag);background:var(--sunk);color:var(--ink-2);font-size:12px}
 .cols .more{background:none;color:var(--ink-3)}
-.start-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.start-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* Time limit stepper, left of the Start run button */
+.budget{display:flex;align-items:center;gap:12px}
+.budget-l{font-weight:600;font-size:14px}
+.stepper{display:inline-flex;align-items:center;height:44px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--paper);overflow:hidden}
+.stepper button{width:40px;height:100%;border:0;background:none;color:var(--ink);font-size:18px;line-height:1;transition:background-color var(--t-fast) var(--ease)}
+.stepper button:hover:not(:disabled){background:var(--sunk)}
+.stepper button:disabled{color:var(--ink-3);cursor:not-allowed}
+.stepper output{min-width:96px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;border-inline:1px solid var(--line);line-height:42px}
+
+/* Start run: cartoon squash-and-stretch launch */
+.start-btn{position:relative;overflow:visible}
+.start-btn.is-launching{animation:np-boing .62s cubic-bezier(.3,1.6,.5,1)}
+.start-btn.is-launching .start-t{animation:np-pop .62s var(--ease)}
+@keyframes np-boing{
+  0%{transform:scale(1,1)}
+  18%{transform:scale(1.22,.72)}
+  38%{transform:scale(.86,1.2) translateY(-6px)}
+  58%{transform:scale(1.08,.92)}
+  78%{transform:scale(.97,1.03)}
+  100%{transform:scale(1,1)}
+}
+@keyframes np-pop{0%,100%{transform:none}38%{transform:rotate(-6deg) scale(1.08)}58%{transform:rotate(4deg)}}
+.launch-bit{
+  position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;
+  background:var(--paper);border:2px solid var(--ink);pointer-events:none;
+  animation:np-puff .75s cubic-bezier(.2,.8,.3,1) forwards;
+}
+.launch-bit.is-star{width:auto;height:auto;margin:-10px 0 0 -6px;border:0;background:none;color:#ffd23f;font-size:18px;line-height:1;text-shadow:0 0 0 var(--ink),1px 1px 0 var(--ink)}
+@keyframes np-puff{
+  0%{transform:translate(0,0) scale(.2) rotate(0);opacity:1}
+  70%{opacity:1}
+  100%{transform:translate(var(--dx),var(--dy)) scale(1.1) rotate(var(--rot));opacity:0}
+}
+.launch-rocket{position:absolute;right:-4px;top:-4px;font-size:22px;pointer-events:none;animation:np-rocket .9s cubic-bezier(.5,0,.8,.4) forwards}
+@keyframes np-rocket{
+  0%{transform:translate(0,0) rotate(0) scale(.6);opacity:0}
+  15%{transform:translate(-4px,4px) rotate(-8deg) scale(1);opacity:1}
+  30%{transform:translate(2px,-2px) rotate(6deg)}
+  100%{transform:translate(90px,-120px) rotate(0) scale(.8);opacity:0}
+}
 
 /* ------------------------------------------------------------------
    Run
@@ -476,6 +532,9 @@ code,.code{font-family:var(--f-code);font-size:.88em}
 .tbl tr.is-best td:last-child{border-radius:0 10px 10px 0}
 .tbl .fam{font-weight:600;display:block}
 .tbl .src{font-size:12.5px;color:var(--ink-3)}
+.tbl .chal{display:flex;gap:8px;align-items:baseline;font-size:13.5px;white-space:nowrap}
+.tbl .chal .num{color:var(--ink-2)}
+.tbl .chal.is-win .fam,.tbl .chal.is-win .num{color:var(--go);font-weight:600}
 .pill{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--r-tag);background:var(--blue);color:var(--on-blue);font-size:11.5px;font-weight:700}
 .tbl-wrap{overflow:auto;margin:0 -12px}
 .tbl-wrap .tbl{min-width:560px}
@@ -547,6 +606,7 @@ dialog .df{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;bord
   .head-actions{margin-left:0;width:100%}
   .head-actions .btn{flex:1}
   .btn-block-sm{width:100%}
+  .budget{width:100%;justify-content:space-between}
   .ev{grid-template-columns:30px 14px minmax(0,1fr);column-gap:10px}
   .ev::before{left:calc(30px + 10px + 6.5px)}
   .working{padding-left:40px}
