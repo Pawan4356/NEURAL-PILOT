@@ -58,6 +58,8 @@ function resetNewForm() {
   document.querySelectorAll('#suggest button').forEach((button) => button.setAttribute('aria-pressed', 'false'));
   budgetMin = budgetBounds()[0];
   stepBudget(0);
+  iterations = state.config?.max_iterations ?? 5;
+  stepIterations(0);
   updateStartEnabled();
 }
 
@@ -104,6 +106,29 @@ function stepBudget(direction) {
   $('budget-inc').disabled = budgetMin >= hi;
 }
 
+// Iteration cap. The bounds and default come from /api/config once it has loaded.
+let iterations = 5;
+
+function iterationBounds() {
+  const cfg = state.config || {};
+  return [cfg.max_iterations_min ?? 2, cfg.max_iterations_max ?? 10];
+}
+
+/** The form was drawn before /api/config arrived: apply its bounds and default. */
+export function syncFormLimits() {
+  iterations = state.config?.max_iterations ?? iterations;
+  stepIterations(0);
+  stepBudget(0);
+}
+
+function stepIterations(direction) {
+  const [lo, hi] = iterationBounds();
+  iterations = Math.min(hi, Math.max(lo, iterations + direction));
+  $('iter-val').textContent = String(iterations);
+  $('iter-dec').disabled = iterations <= lo;
+  $('iter-inc').disabled = iterations >= hi;
+}
+
 /** A short, cartoonish launch: the button squashes and springs, then puffs and
  *  stars burst out of it and a rocket shoots off. Purely decorative. */
 function playLaunch(button) {
@@ -146,7 +171,7 @@ async function startRun(event) {
   try {
     // Let the launch play out before the screen changes.
     const [run] = await Promise.all([
-      createRun(file, goal, budgetMin),
+      createRun(file, goal, budgetMin, iterations),
       new Promise((resolve) => setTimeout(resolve, 650)),
     ]);
     openRunScreen(run.run_id, goal);
@@ -321,6 +346,8 @@ export function initRuns() {
   });
   $('budget-dec').onclick = () => stepBudget(-1);
   $('budget-inc').onclick = () => stepBudget(1);
+  $('iter-dec').onclick = () => stepIterations(-1);
+  $('iter-inc').onclick = () => stepIterations(1);
   $('goal-input').addEventListener('input', updateStartEnabled);
   resetNewForm();
   $('new-form').onsubmit = startRun;

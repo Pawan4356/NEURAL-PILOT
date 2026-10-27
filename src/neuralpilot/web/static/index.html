@@ -373,6 +373,7 @@
                                 ><span id="new-error-t"></span>
                             </div>
                             <div class="start-row" style="margin-top: 4px">
+                                <div class="run-limits">
                                 <div class="budget">
                                     <span class="budget-l" id="budget-label"
                                         >Time limit</span
@@ -402,6 +403,38 @@
                                             +
                                         </button>
                                     </div>
+                                </div>
+                                <div class="budget">
+                                    <span class="budget-l" id="iter-label"
+                                        >Iterations</span
+                                    >
+                                    <div
+                                        class="stepper"
+                                        role="group"
+                                        aria-labelledby="iter-label"
+                                    >
+                                        <button
+                                            type="button"
+                                            id="iter-dec"
+                                            aria-label="Fewer iterations"
+                                        >
+                                            &minus;
+                                        </button>
+                                        <output
+                                            id="iter-val"
+                                            class="is-short"
+                                            aria-live="polite"
+                                            >5</output
+                                        >
+                                        <button
+                                            type="button"
+                                            id="iter-inc"
+                                            aria-label="More iterations"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
+                                </div>
                                 </div>
                                 <button
                                     class="btn btn-primary btn-block-sm start-btn"

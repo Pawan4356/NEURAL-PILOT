@@ -40,11 +40,18 @@ def serialize_record(record: ExperimentRecord) -> dict:
         "activity_log": record.activity_log,
         "clarification_question": None,
         "iteration": len(record.iteration_logs),
-        "max_iterations": config.MAX_ITERATIONS,
+        "max_iterations": _max_iterations_of(record),
         "iteration_logs": record.iteration_logs,
         "final_report": record.final_report,
         "error": record.error,
     }
+
+
+def _max_iterations_of(record: ExperimentRecord) -> int:
+    """The cap this run ran with. Runs saved before the cap was per-run did not
+    record it, so they fall back to the server default."""
+    repro = (record.final_report or {}).get("reproducibility") or {}
+    return repro.get("max_iterations") or config.MAX_ITERATIONS
 
 
 def interrupted_view(owned: OwnedRun) -> dict:

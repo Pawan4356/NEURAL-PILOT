@@ -22,14 +22,14 @@ export function stopKind(report) {
     return {
       warn: true,
       headline: 'The run ran out of time, it did not converge.',
-      advice: 'The best attempt so far was kept and finalized — more time could still improve on it. Raise NEURALPILOT_RUN_BUDGET_S to let it finish.',
+      advice: 'The best attempt so far was kept and finalized — more time could still improve on it. Start a new run with a longer time limit to let it finish.',
     };
   }
   if (/max_iterations|iteration_count/i.test(why)) {
     return {
       warn: false,
       headline: 'The run finished because it hit its iteration limit.',
-      advice: 'It stopped as configured rather than because it stopped improving. Raise NEURALPILOT_MAX_ITERATIONS to let it keep refining.',
+      advice: 'It stopped as configured rather than because it stopped improving. Start a new run with more iterations to let it keep refining.',
     };
   }
   return {

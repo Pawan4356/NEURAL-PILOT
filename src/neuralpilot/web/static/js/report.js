@@ -47,7 +47,7 @@ function renderStopReason(report) {
 function renderHero(report, primary, holdoutScore) {
   const cv = (report.cv_metrics || {})[primary] || {};
   const history = report.run_history || [];
-  const maxIterations = state.config?.max_iterations ?? history.length;
+  const maxIterations = report.reproducibility?.max_iterations ?? state.config?.max_iterations ?? history.length;
 
   $('r-family').textContent = report.model_family || '-';
   $('r-score').textContent = Number(report.composite_score).toFixed(3);
@@ -252,10 +252,10 @@ export function renderReport(report) {
 function initTextDialog() {
   const dialog = $('text-dlg');
   $('text-btn').onclick = () => {
-    // The goal and the iteration cap belong to the page, not to the report payload.
+    // The goal belongs to the page; runs saved before the cap was per-run fall back to the server default.
     $('text-pre').textContent = reportText(state.lastReport, {
       goal: $('report-goal').textContent,
-      maxIterations: state.config?.max_iterations,
+      maxIterations: state.lastReport?.reproducibility?.max_iterations ?? state.config?.max_iterations,
     });
     dialog.showModal();
   };

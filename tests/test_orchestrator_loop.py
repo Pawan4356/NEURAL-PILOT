@@ -241,6 +241,7 @@ def test_finalized_run_persists_decision_trace_and_versions(tmp_path, repo):
     assert record.final_metrics["holdout"] == state.final_metrics
     assert record.code_version
     assert state.final_report["reproducibility"]["dataset_fingerprint"] == state.dataset_fingerprint
+    assert state.final_report["reproducibility"]["max_iterations"] == state.max_iterations
 
 
 def test_budget_exhaustion_forces_stop_without_llm_decision(tmp_path, repo):
