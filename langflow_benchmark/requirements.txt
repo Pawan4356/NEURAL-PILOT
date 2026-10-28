@@ -1,0 +1,8 @@
+# Versions the benchmark was built and tested with. Langflow's Python
+# Interpreter rules change between versions, so keep these pinned.
+langflow==1.13.0
+scikit-learn==1.9.1
+xgboost==3.4.1
+catboost==1.2.10
+pandas==2.3.3
+requests

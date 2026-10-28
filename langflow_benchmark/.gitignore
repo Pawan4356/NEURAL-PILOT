@@ -1,0 +1,5 @@
+# Langflow's own environment, database and logs stay local
+.venv/
+.langflow/
+work/
+results/*/raw/
