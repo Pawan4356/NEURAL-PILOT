@@ -1,0 +1,9 @@
+[
+  {
+    "name": "telco_churn",
+    "path": "../archive/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+    "target": "Churn",
+    "problem_type": "classification",
+    "request": "PASTE HERE the exact request text you typed into NeuralPilot for this dataset"
+  }
+]
